@@ -1,0 +1,30 @@
+# Cargo generated files
+target/
+Cargo.lock
+
+# Environment variables
+.env
+.env.example
+
+# Keys and secrets
+crypto_key.key
+
+# Logs
+*.log
+sistema.log
+warnings.txt
+
+# Misc
+cosas/
+esquema.sql
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Thrift
+Thumbs.db
+
+# Rust specific
+**/*.rs.bk
