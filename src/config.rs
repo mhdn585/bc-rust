@@ -169,35 +169,3 @@ pub fn regenerar_clave_crypto() -> Option<Vec<u8>> {
     let _ = log_event_internal("Error al regenerar clave crypto");
     None
 }
-
-pub fn cargar_modo_color() -> bool {
-    let config_path = get_project_root().join("color_mode.config");
-    if config_path.exists() {
-        if let Ok(contenido) = fs::read_to_string(&config_path) {
-            let modo = contenido.trim().to_lowercase();
-            if modo == "false" {
-                crate::utils::set_color_mode(false);
-                return false;
-            }
-        }
-    }
-    crate::utils::set_color_mode(true);
-    true
-}
-
-pub fn guardar_modo_color(modo: bool) -> bool {
-    let config_path = get_project_root().join("color_mode.config");
-    let contenido = if modo { "true" } else { "false" };
-    match fs::write(&config_path, contenido) {
-        Ok(_) => true,
-        Err(_) => false
-    }
-}
-
-pub fn get_color_mode() -> bool {
-    crate::utils::get_color_mode()
-}
-
-pub fn set_color_mode(modo: bool) {
-    crate::utils::set_color_mode(modo);
-}

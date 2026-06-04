@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use crate::logs::{log_error, log_event};
-use crate::utils::{print_verde, print_rojo, print_amarillo, print_blanco, print_azul};
+use crate::utils::{print_verde, print_rojo, print_amarillo, print_azul};
 use crate::db::reiniciar_base_datos;
 
 pub fn eliminar_archivo_log() -> bool {

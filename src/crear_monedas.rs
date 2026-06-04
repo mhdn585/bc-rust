@@ -11,7 +11,7 @@ use crate::db::{
 };
 use std::time::Instant;
 
-pub const TOTAL_MONEDAS: i64 = 1000000;
+pub const TOTAL_MONEDAS: i64 = 1000;
 pub const LONGITUD_ID: usize = 1024;
 
 const CARACTERES_PERMITIDOS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
@@ -188,22 +188,4 @@ pub async fn verificar_integridad() -> bool {
 
     print_verde("Verificacion de integridad completada exitosamente");
     true
-}
-
-pub async fn obtener_resumen() -> Option<crate::models::Estadisticas> {
-    let estadisticas = obtener_estadisticas_completas().await;
-
-    print_blanco("\n=== RESUMEN DEL SISTEMA ===");
-    print_blanco(&format!("Total monedas: {}", estadisticas.total_monedas_cifradas));
-    print_blanco(&format!("Monedas minadas: {}", estadisticas.monedas_minadas));
-    print_blanco(&format!("Monedas disponibles: {}", estadisticas.monedas_disponibles));
-    let porcentaje = (estadisticas.monedas_minadas as f64 / TOTAL_MONEDAS as f64) * 100.0;
-    print_blanco(&format!("Porcentaje minado: {:.2}%", porcentaje));
-    print_blanco(&format!("Saldo actual: ${}", estadisticas.saldo_actual));
-    print_blanco(&format!("Longitud IDs: {} caracteres", LONGITUD_ID));
-    print_blanco("Cifrado: AES-256-GCM por moneda");
-    print_blanco("Base de datos: PostgreSQL");
-    print_blanco("=".repeat(30).as_str());
-
-    Some(estadisticas)
 }

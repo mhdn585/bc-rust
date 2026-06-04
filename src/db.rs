@@ -3,7 +3,6 @@ use std::sync::Arc;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::{Row, types::Json};
 use dotenv::dotenv;
-use serde_json::Value as JsonValue;
 use chrono::Utc;
 use once_cell::sync::OnceCell;
 use crate::logs::{log_event, log_error};

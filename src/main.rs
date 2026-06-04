@@ -1,4 +1,3 @@
-use std::io::{self, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::process;
@@ -14,11 +13,11 @@ mod minar;
 mod reiniciar;
 mod models;
 
-use crate::config::{obtener_clave_crypto, verificar_configuracion_postgres, cargar_modo_color, guardar_modo_color, get_color_mode, set_color_mode};
+use crate::config::{obtener_clave_crypto, verificar_configuracion_postgres};
 use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles};
 use crate::logs::log_event;
-use crate::utils::{limpiar_pantalla, print_verde, print_rojo, print_amarillo, print_azul, print_blanco, input_filtrado};
-use crate::crear_monedas::{generar_monedas, verificar_integridad, obtener_resumen, TOTAL_MONEDAS};
+use crate::utils::{limpiar_pantalla, print_verde, print_rojo, print_amarillo, print_azul, print_blanco, print_cyan, input_filtrado};
+use crate::crear_monedas::{generar_monedas, verificar_integridad, TOTAL_MONEDAS};
 use crate::minar::minar_automatico;
 
 fn signal_handler() {
@@ -122,11 +121,8 @@ fn mostrar_ayuda() {
     print_blanco("  minar     - Minar monedas automaticamente");
     print_blanco("  estado    - Ver estado del sistema");
     print_blanco("  saldo     - Ver saldo actual");
-    print_blanco("  logs      - Ver registro de logs");
-    print_blanco("  colores   - Activar o desactivar colores");
     print_blanco("  reiniciar - Reiniciar sistema (elimina TODOS los datos)");
     print_blanco("  verificar - Verificar integridad de las monedas");
-    print_blanco("  resumen   - Mostrar resumen completo");
     print_blanco("  help      - Esta ayuda");
     print_blanco("  salir     - Salir del programa");
     print_azul("\n  Cifrado: AES-256-GCM individual por moneda");
@@ -226,9 +222,12 @@ async fn comando_minar() {
         total, minadas, disponibles, saldo
     ));
     print_azul("Cifrado: AES-256-GCM individual por moneda");
+    print_cyan("\nPresiona 'N' en cualquier momento para detener el minado");
     println!();
 
     minar_automatico().await;
+    print_azul("\nMinado detenido. Volviendo al menu principal...");
+    input_filtrado("\nPresiona ENTER para continuar...");
 }
 
 async fn comando_verificar() {
@@ -242,57 +241,8 @@ async fn comando_verificar() {
     input_filtrado("\nPresiona ENTER para continuar...");
 }
 
-async fn comando_resumen() {
-    print_amarillo("\n=== RESUMEN COMPLETO DEL SISTEMA ===");
-    obtener_resumen().await;
-    input_filtrado("\nPresiona ENTER para continuar...");
-}
-
-fn comando_colores() {
-    let modo_actual = get_color_mode();
-    print_amarillo("\n=== CONFIGURACION DE COLORES ===");
-    print_blanco("Modo actual: ");
-    if modo_actual {
-        print_verde("COLORES ACTIVADOS");
-    } else {
-        print_rojo("COLORES DESACTIVADOS (blanco y negro)");
-    }
-    println!();
-    print_blanco("Opciones:");
-    print_blanco("  1. Activar colores");
-    print_blanco("  2. Desactivar colores (modo monocromatico)");
-    print_blanco("  3. Cancelar");
-    println!();
-
-    let respuesta = input_filtrado("Selecciona una opcion (1-3): ");
-
-    match respuesta.trim() {
-        "1" => {
-            set_color_mode(true);
-            guardar_modo_color(true);
-            print_verde("Colores activados");
-        },
-        "2" => {
-            set_color_mode(false);
-            guardar_modo_color(false);
-            print_blanco("Colores desactivados - Modo monocromatico");
-        },
-        _ => {
-            print_azul("Configuracion cancelada");
-        }
-    }
-
-    input_filtrado("\nPresiona ENTER para continuar...");
-}
-
-fn mostrar_logs(cantidad: usize) {
-    utils::mostrar_logs(cantidad);
-    input_filtrado("\nPresiona ENTER para continuar...");
-}
-
 async fn inicializar_sistema() {
     let _ = log_event("Sistema iniciado con PostgreSQL");
-    cargar_modo_color();
 
     if !verificar_clave_crypto() {
         print_rojo("No se puede continuar sin una clave criptografica valida");
@@ -344,22 +294,9 @@ async fn main() {
                 mostrar_estado().await;
                 input_filtrado("\nPresiona ENTER para continuar...");
             },
-            "logs" => {
-                limpiar_pantalla();
-                print_amarillo("\n=== ULTIMOS EVENTOS ===");
-                mostrar_logs(30);
-            },
             "verificar" => {
                 limpiar_pantalla();
                 comando_verificar().await;
-            },
-            "resumen" => {
-                limpiar_pantalla();
-                comando_resumen().await;
-            },
-            "colores" => {
-                limpiar_pantalla();
-                comando_colores();
             },
             "reiniciar" => {
                 limpiar_pantalla();

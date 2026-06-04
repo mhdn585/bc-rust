@@ -2,8 +2,6 @@ use aes_gcm::{Aes256Gcm, Key, Nonce};
 use aes_gcm::aead::{Aead, KeyInit};
 use rand::RngCore;
 use rand::rngs::OsRng;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
 use crate::logs::log_error;
 
 pub fn cifrar_datos_aes(datos_bytes: &[u8], clave: &[u8]) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {

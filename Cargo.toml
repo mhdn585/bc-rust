@@ -33,6 +33,9 @@ ctrlc = { version = "3.4", features = ["termination"] }
 # Additional utilities
 once_cell = "1.19"
 
+# Cross-platform terminal handling for keyboard input
+crossterm = { version = "0.28", features = ["event-stream"] }
+
 [profile.release]
 opt-level = 3
 lto = true
