@@ -1,8 +1,11 @@
+
+// importar funciones para usar en el programa
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::process;
 use ctrlc;
 
+// importar/conectar otros archivos del programa
 mod config;
 mod db;
 mod crypto_aes;
@@ -13,6 +16,7 @@ mod minar;
 mod reiniciar;
 mod models;
 
+// importacion de funciones especificas de otros archivos
 use crate::config::{obtener_clave_crypto, verificar_configuracion_postgres};
 use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles};
 use crate::logs::log_event;
@@ -20,55 +24,98 @@ use crate::utils::{limpiar_pantalla, print_verde, print_rojo, print_amarillo, pr
 use crate::crear_monedas::{generar_monedas, verificar_integridad, TOTAL_MONEDAS};
 use crate::minar::minar_automatico;
 
+
+
+/* 
+    esta es la funcion que permite al programa cerrarse correctamente al presionar ctrl + c y cerrar
+    la base de datos correctamente sin que todo explote, el programa primero cierra las conexiones con
+    las db y luego cierra el programa completo 
+*/
 fn signal_handler() {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
     ctrlc::set_handler(move || {
         println!("\n");
         print_amarillo("Cerrando conexiones de base de datos...");
-        let _ = tokio::runtime::Runtime::new().unwrap().block_on(cerrar_pool());
+        let _ = tokio::runtime::Runtime::new().unwrap().block_on(cerrar_pool()); // cerrar conexiones con la db
         print_verde("Sistema cerrado correctamente");
         r.store(false, Ordering::SeqCst);
         process::exit(0);
     }).expect("Error setting Ctrl-C handler");
 }
 
-fn verificar_clave_crypto() -> bool {
+
+
+/*
+    esta funcion es la encargada de verificar si la clave de descifrado AES-256 es correcta,
+    primero verifica si la clave existe, si existe, el programa verifica que tenga la longitud correcta
+    de 32 bytes = 256 bits, si el programa llega a fallar, no encuentra la clave o, esta no tiene la
+    longitud necesaria, el programa lanza error 
+*/
+fn verificar_clave_crypto() -> bool { // devuelve un booleano, si es true, todo salio bien, si es false, error
     match obtener_clave_crypto() {
-        Some(clave) if clave.len() == 32 => true,
+        Some(clave) if clave.len() == 32 => true, // todo bien
         _ => {
             print_rojo("ERROR: Clave criptografica no valida");
-            false
+            false // retorna falsa, error
         }
     }
 }
 
-async fn verificar_postgresql() -> bool {
-    let (config_valida, errores) = verificar_configuracion_postgres();
+
+
+/*
+    esta funcion verifica el estado con postgres para saber si todo esta bien, que las credenciales sean las
+    correctas y que el servidor este funcionando correctamente. esta funcion usa "async" lo cual es una funcion
+    que espera operaciones lentas como conectarse a una base datos, "-> bool" es para los booleanos t o f.
+
+    esta funcion usa config_valida para verificar la configuracion de las credenciales de postgres, si en el .env
+    todas las credenciales son las correctas el programa retorna true, si falta alguna credencial el programa
+    retorna false y muestra un mensaje de error.
+
+    funcion de config.rs
+*/
+async fn verificar_postgresql() -> bool { // devuelve un booleano, si es true, todo salio bien, si es false, error
+    let (config_valida, errores) = verificar_configuracion_postgres(); // verifica confg de postgres
     if !config_valida {
         print_rojo("ERROR: Configuracion de PostgreSQL incompleta");
         for error in errores {
             print_rojo(&format!("  - {}", error));
         }
-        print_amarillo("Revisa el archivo .env con las credenciales");
+        print_amarillo("Revisa el archivo .env con las credenciales"); // manejo de error
         return false;
     }
 
+    /*
+        aqui el programa intenta conectarse a la db con las credenciales del .env, si el programa si logra conectarse, true,
+        la conexion si fue exitosa, sino, el programa muestra mesaje de error y devuelve un false.
+
+        la funcion viene de db.rs
+     */
     if !verificar_conexion().await {
         print_rojo("ERROR: No se pudo conectar a PostgreSQL");
         print_amarillo("Verifica que PostgreSQL este ejecutandose");
-        return false;
+        return false; // error
     }
 
-    true
+    true // exito
 }
 
-async fn mostrar_saldo() -> i64 {
+
+
+/*
+    funcion asincrona para obtener el saldo,
+    si hay errores el programa devuelve 0 para manejar el error
+*/
+async fn mostrar_saldo() -> i64 { // async consulta la db, usa i64, numero entero hasta 9 cuatrillone, fua q loco pa
     match obtener_saldo().await {
-        Ok(saldo) => saldo,
-        Err(_) => 0
+        Ok(saldo) => saldo, // devuelve el saldo
+        Err(_) => 0 // devuelve 0, se cayo el sistema, cagada
     }
 }
+
+
+
 
 async fn mostrar_estado() -> (i64, i64, i64) {
     let total = match obtener_total_monedas().await {

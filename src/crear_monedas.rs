@@ -11,11 +11,13 @@ use crate::db::{
 };
 use std::time::Instant;
 
-pub const TOTAL_MONEDAS: i64 = 1000;
-pub const LONGITUD_ID: usize = 1024;
+pub const TOTAL_MONEDAS: i64 = 1000; // cantidad de monedas a generar
+pub const LONGITUD_ID: usize = 1024; // cantidad de caracteres 
 
+// caracteres a usar por ID
 const CARACTERES_PERMITIDOS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
 
+// generar el ID de forma aleatoria
 fn generar_id_complejo() -> String {
     let mut rng = rand::thread_rng();
     (0..LONGITUD_ID)

@@ -1,30 +1,18 @@
-# Cargo generated files
-target/
+# Archivos generados por Rust / Cargo
+/target/
+**/*.rs.bk
 Cargo.lock
 
-# Environment variables
-.env
-.env.example
-
-# Keys and secrets
+# Archivos de configuracion y datos especificos del usuario
 crypto_key.key
-
-# Logs
-*.log
 sistema.log
-warnings.txt
+*.db
+.env
 
-# Misc
-cosas/
-esquema.sql
-
-# IDE and editor files
-.idea/
-.vscode/
-*.swp
-*~
-.DS_Thrift
+# Archivos del sistema operativo
+.DS_Store
 Thumbs.db
 
-# Rust specific
-**/*.rs.bk
+cosas/
+
+build_log.txt
