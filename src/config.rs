@@ -145,27 +145,3 @@ pub fn verificar_configuracion_postgres() -> (bool, Vec<String>) {
 
     (errores.is_empty(), errores)
 }
-
-pub fn eliminar_clave_crypto() -> bool {
-    let project_root = get_project_root();
-    let key_path = project_root.join(KEY_FILE);
-
-    if key_path.exists() {
-        let _ = fs::remove_file(&key_path);
-        let _ = log_event_internal("Clave crypto eliminada");
-    }
-
-    true
-}
-
-pub fn regenerar_clave_crypto() -> Option<Vec<u8>> {
-    eliminar_clave_crypto();
-    if let Some(nueva_clave) = generar_clave_aes() {
-        if guardar_clave(&nueva_clave) {
-            let _ = log_event_internal("Clave crypto regenerada exitosamente");
-            return Some(nueva_clave);
-        }
-    }
-    let _ = log_event_internal("Error al regenerar clave crypto");
-    None
-}

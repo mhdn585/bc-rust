@@ -3,7 +3,7 @@ use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use base64::Engine;
-use crossterm::{event::{self, Event, KeyCode}, terminal, ExecutableCommand};
+use crossterm::{event::{self, Event, KeyCode}, terminal};
 use crate::logs::{log_error, log_event};
 use crate::utils::{print_verde, print_rojo, print_amarillo, print_azul, print_blanco, print_cyan};
 use crate::config::obtener_clave_crypto;
