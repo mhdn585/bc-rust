@@ -14,7 +14,7 @@ use crate::db::{
     verificar_id_original_existe
 };
 
-const VELOCIDAD_DESCIFRADO: f64 = 0.05;
+const VELOCIDAD_REVELACION: u64 = 30;
 
 fn tecla_n_presionada() -> bool {
     if event::poll(Duration::from_millis(0)).unwrap_or(false) {
@@ -57,60 +57,44 @@ fn descifrar_id_moneda(id_cifrado_b64: &str, clave_aes: &[u8]) -> Option<String>
     }
 }
 
-fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, stop_flag: &Arc<AtomicBool>) -> Option<String> {
-    let cifrado_len = id_cifrado.len();
-    let original_len = id_original.len();
-
+fn mostrar_revelacion_id(id_cifrado: &str, id_original: &str, stop_flag: &Arc<AtomicBool>) -> bool {
     println!();
     print_amarillo("+------------------------------------------------------------+");
-    print_amarillo("|           DESCIFRADO EN VIVO                               |");
+    print_amarillo("|                    DESCIFRANDO MONEDA                       |");
     print_amarillo("+------------------------------------------------------------+");
     println!();
-
-    print_blanco("ID CIFRADO (AES-256-GCM):");
+    
+    print_blanco("ID CIFRADO:");
     print_azul(id_cifrado);
     println!();
-    print_cyan("Descifrando automaticamente...");
     println!();
-
-    let mut texto_descifrado = String::new();
-    for i in 0..original_len {
+    
+    print_cyan("Descifrando ID original...");
+    println!();
+    println!();
+    
+    print!("ID ORIGINAL: ");
+    io::stdout().flush().unwrap();
+    
+    for c in id_original.chars() {
         if stop_flag.load(Ordering::SeqCst) || tecla_n_presionada() {
             stop_flag.store(true, Ordering::SeqCst);
             println!();
             print_amarillo("\n[MINADO DETENIDO] Usuario solicito detener el proceso");
-            return None;
+            return false;
         }
-
-        texto_descifrado.push(id_original.chars().nth(i).unwrap());
-
-        let proporcion = (i + 1) as f64 / original_len as f64;
-        let chars_visibles_cifrado = (cifrado_len as f64 * (1.0 - proporcion)) as usize;
-
-        let cifrado_visible = if chars_visibles_cifrado > 0 {
-            &id_cifrado[0..chars_visibles_cifrado.min(cifrado_len)]
-        } else {
-            ""
-        };
-
-        print!("\r\x1b[K");
-        if !cifrado_visible.is_empty() {
-            print!("\x1b[91m{}\x1b[0m -> \x1b[92m{}\x1b[0m", cifrado_visible, texto_descifrado);
-        } else {
-            print!("\x1b[92m-> {}\x1b[0m", texto_descifrado);
-        }
+        
+        print!("{}", c);
         io::stdout().flush().unwrap();
-
-        std::thread::sleep(Duration::from_secs_f64(VELOCIDAD_DESCIFRADO));
+        std::thread::sleep(Duration::from_millis(VELOCIDAD_REVELACION));
     }
-
+    
     println!();
     println!();
-    print_blanco("ID ORIGINAL COMPLETO:");
-    print_verde(&texto_descifrado);
+    print_verde("ID ORIGINAL COMPLETO REVELADO");
     println!();
-
-    Some(texto_descifrado)
+    
+    true
 }
 
 fn mostrar_animacion_verificacion(stop_flag: &Arc<AtomicBool>) -> bool {
@@ -187,10 +171,10 @@ async fn minar_moneda_individual(
         }
     };
 
-    let id_descifrado = match mostrar_transformacion_descifrado(id_cifrado, &id_original, stop_flag) {
-        Some(id) => id,
-        None => return (false, "Descifrado interrumpido".to_string()),
-    };
+    let revelacion_exitosa = mostrar_revelacion_id(id_cifrado, &id_original, stop_flag);
+    if !revelacion_exitosa {
+        return (false, "Revelacion interrumpida".to_string());
+    }
 
     if stop_flag.load(Ordering::SeqCst) {
         return (false, "Minado detenido por usuario".to_string());
@@ -206,7 +190,7 @@ async fn minar_moneda_individual(
         return (false, "Minado detenido por usuario".to_string());
     }
 
-    let existe = verificar_id_original_existe(&id_descifrado).await;
+    let existe = verificar_id_original_existe(&id_original).await;
 
     if existe {
         print_verde("  [OK] ID VALIDO - La moneda es autentica");
@@ -222,10 +206,10 @@ async fn minar_moneda_individual(
         }
 
         if actualizar_estado_moneda(moneda_id, true).await {
-            let preview = if id_descifrado.len() > 100 {
-                Some(&id_descifrado[0..100])
+            let preview = if id_original.len() > 100 {
+                Some(&id_original[0..100])
             } else {
-                Some(id_descifrado.as_str())
+                Some(id_original.as_str())
             };
             let saldo_nuevo = match actualizar_saldo(1, Some(moneda_id), preview).await {
                 Ok(s) => s,

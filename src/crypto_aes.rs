@@ -5,6 +5,7 @@ use rand::rngs::OsRng;
 use crate::logs::log_error;
 
 pub fn cifrar_datos_aes(datos_bytes: &[u8], clave: &[u8]) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+
     if clave.len() != 32 {
         log_error(&format!("Clave invalida para cifrado: longitud {}", clave.len()));
         return None;
@@ -33,7 +34,7 @@ pub fn cifrar_datos_aes(datos_bytes: &[u8], clave: &[u8]) -> Option<(Vec<u8>, Ve
     }
 }
 
-pub fn descifrar_datos_aes(ciphertext: &[u8], nonce: &[u8], tag: &[u8], clave: &[u8]) -> Option<Vec<u8>> {
+pub fn descifrar_datos_aes(ciphertext: &[u8], nonce: &[u8], tag: &[u8], clave: &[u8]) -> Option<Vec<u8>> { 
     if clave.len() != 32 {
         log_error(&format!("Clave invalida para descifrado: longitud {}", clave.len()));
         return None;
