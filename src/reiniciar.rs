@@ -22,33 +22,14 @@ pub fn eliminar_archivo_log() -> bool {
     }
 }
 
-pub async fn eliminar_clave_crypto() -> bool {
-    let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let key_path = project_root.join("crypto_key.key");
-
-    let mut exito = true;
-
-    if key_path.exists() {
-        if let Err(e) = fs::remove_file(&key_path) {
-            log_error(&format!("Error al eliminar clave crypto: {}", e));
-            exito = false;
-        }
-    }
-
-    exito
-}
-
-pub async fn reiniciar_sistema_postgres(_crear_backup: bool, limpiar_logs: bool, conservar_clave: bool) -> bool {
+pub async fn reiniciar_sistema_postgres(_crear_backup: bool, limpiar_logs: bool, _conservar_clave: bool) -> bool {
     let _ = log_event("INICIANDO REINICIO DEL SISTEMA CON POSTGRESQL");
 
     if limpiar_logs {
         eliminar_archivo_log();
     }
 
-    if !conservar_clave {
-        eliminar_clave_crypto().await;
-        print_azul("Clave criptografica eliminada (se regenerara al iniciar)");
-    }
+    print_azul("La clave criptografica permanece embebida en el sistema");
 
     print_amarillo("Eliminando todos los datos de PostgreSQL...");
     let exito = reiniciar_base_datos().await;

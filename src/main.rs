@@ -12,10 +12,9 @@ mod crear_monedas;
 mod minar;
 mod reiniciar;
 mod models;
+mod clave_embebida;
 
-///prueba de ramas en git
-
-use crate::config::{obtener_clave_crypto, verificar_configuracion_postgres};
+use crate::config::{verificar_configuracion_postgres, inicializar_clave_sistema};
 use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles};
 use crate::logs::log_event;
 use crate::utils::{limpiar_pantalla, print_verde, print_rojo, print_amarillo, print_azul, print_blanco, print_cyan, input_filtrado};
@@ -28,47 +27,50 @@ fn signal_handler() {
     ctrlc::set_handler(move || {
         println!("\n");
         print_amarillo("Cerrando conexiones de base de datos...");
-        let _ = tokio::runtime::Runtime::new().unwrap().block_on(cerrar_pool()); // cerrar conexiones con la db
+        let _ = tokio::runtime::Runtime::new().unwrap().block_on(cerrar_pool());
         print_verde("Sistema cerrado correctamente");
         r.store(false, Ordering::SeqCst);
         process::exit(0);
     }).expect("Error setting Ctrl-C handler");
 }
 
-fn verificar_clave_crypto() -> bool {
-    match obtener_clave_crypto() {
-        Some(clave) if clave.len() == 32 => true, 
-        _ => {
-            print_rojo("ERROR: Clave criptografica no valida");
-            false // retorna falsa, error
+fn verificar_clave_sistema() -> bool {
+    match inicializar_clave_sistema() {
+        Ok(()) => {
+            print_verde("Clave criptografica inicializada correctamente");
+            true
+        }
+        Err(e) => {
+            print_rojo(&format!("ERROR: No se pudo inicializar la clave criptografica: {}", e));
+            false
         }
     }
 }
 
-async fn verificar_postgresql() -> bool { 
+async fn verificar_postgresql() -> bool {
     let (config_valida, errores) = verificar_configuracion_postgres();
     if !config_valida {
         print_rojo("ERROR: Configuracion de PostgreSQL incompleta");
         for error in errores {
             print_rojo(&format!("  - {}", error));
         }
-        print_amarillo("Revisa el archivo .env con las credenciales"); // manejo de error
+        print_amarillo("Revisa el archivo .env con las credenciales");
         return false;
     }
 
     if !verificar_conexion().await {
         print_rojo("ERROR: No se pudo conectar a PostgreSQL");
         print_amarillo("Verifica que PostgreSQL este ejecutandose");
-        return false; 
+        return false;
     }
 
-    true 
+    true
 }
 
-async fn mostrar_saldo() -> i64 { 
+async fn mostrar_saldo() -> i64 {
     match obtener_saldo().await {
-        Ok(saldo) => saldo, 
-        Err(_) => 0 
+        Ok(saldo) => saldo,
+        Err(_) => 0
     }
 }
 
@@ -98,9 +100,9 @@ async fn mostrar_estado() -> (i64, i64, i64) {
     };
 
     let saldo = mostrar_saldo().await;
-    
+
     print_amarillo("\n=== ESTADO DEL SISTEMA ===");
-    
+
     if total > 0 {
         let porcentaje = (minadas as f64 / total as f64) * 100.0;
         print_blanco(&format!("Total monedas: {}", total));
@@ -109,17 +111,18 @@ async fn mostrar_estado() -> (i64, i64, i64) {
         print_blanco(&format!("Saldo: ${}", saldo));
         print_blanco("Cifrado: AES-256-GCM (individual por moneda)");
         print_blanco("Base de datos: PostgreSQL");
+        print_blanco("Clave: Embebida en el codigo fuente");
     } else {
         print_rojo("No hay monedas en el sistema");
         print_amarillo(&format!("Ejecuta 'generar' para crear {} monedas", TOTAL_MONEDAS));
     }
-    
+
     (total, minadas, disponibles)
 }
 
 fn mostrar_ayuda() {
     print_amarillo("\nCOMANDOS:");
-    print_blanco("  generar   - Generar 1,000,000 monedas");
+    print_blanco("  generar   - Generar 1,000 monedas");
     print_blanco("  minar     - Minar monedas automaticamente");
     print_blanco("  estado    - Ver estado del sistema");
     print_blanco("  saldo     - Ver saldo actual");
@@ -129,16 +132,17 @@ fn mostrar_ayuda() {
     print_blanco("  salir     - Salir del programa");
     print_azul("\n  Cifrado: AES-256-GCM individual por moneda");
     print_azul("  Base de datos: PostgreSQL");
+    print_azul("  Clave: Embebida permanentemente en el sistema");
     println!();
 }
 
 fn confirmar_reinicio() -> bool {
     print_rojo("\nADVERTENCIA: Esto eliminara TODOS los datos del sistema");
-    print_rojo("  - 1,000,000 monedas generadas");
+    print_rojo("  - 1,000 monedas generadas");
     print_rojo("  - Saldo acumulado");
     print_rojo("  - Historial de minado");
     print_rojo("  - Logs del sistema");
-    print_verde("  - La clave criptografica se conservara");
+    print_verde("  - La clave criptografica se conserva embebida");
     print_rojo("Esta accion NO se puede deshacer");
     println!();
 
@@ -244,11 +248,11 @@ async fn comando_verificar() {
 }
 
 async fn inicializar_sistema() {
-    let _ = log_event("Sistema iniciado con PostgreSQL");
+    let _ = log_event("Sistema iniciado con PostgreSQL y clave embebida");
 
-    if !verificar_clave_crypto() {
+    if !verificar_clave_sistema() {
         print_rojo("No se puede continuar sin una clave criptografica valida");
-        print_amarillo("La clave se genera automaticamente en crypto_key.key");
+        print_amarillo("La clave esta embebida en el sistema permanentemente");
         input_filtrado("\nPresiona ENTER para salir...");
         process::exit(1);
     }
