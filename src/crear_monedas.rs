@@ -1,22 +1,19 @@
 use rand::Rng;
+use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use crate::logs::log_event;
 use crate::utils::{print_verde, print_rojo, print_amarillo, print_blanco, print_azul};
-use crate::config::obtener_clave_crypto;
+use crate::config::{obtener_clave_crypto, TOTAL_MONEDAS, MONEDAS_POR_TABLA, obtener_nombre_tabla, obtener_todas_las_tablas};
 use crate::crypto_aes::cifrar_datos_aes;
 use crate::db::{
-    insertar_id_original, insertar_moneda_cifrada, verificar_id_original_existe,
-    obtener_total_monedas, obtener_estadisticas_completas,
-    init_database
+    insertar_id_original, insertar_moneda_en_tabla, verificar_id_original_existe,
+    obtener_total_monedas, obtener_estadisticas_completas, init_database
 };
 use std::time::Instant;
 
-pub const TOTAL_MONEDAS: i64 = 1000;
 pub const LONGITUD_ID: usize = 1024;
 
-
 const CARACTERES_PERMITIDOS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
-
 
 fn generar_id_complejo() -> String {
     let mut rng = rand::thread_rng();
@@ -46,7 +43,35 @@ fn cifrar_id_individual(id_original: &str, clave_aes: &[u8]) -> Option<String> {
     let mut datos_combinados = nonce;
     datos_combinados.extend_from_slice(&tag);
     datos_combinados.extend_from_slice(&ciphertext);
-    Some(base64::engine::general_purpose::STANDARD.encode(&datos_combinados))
+    Some(STANDARD.encode(&datos_combinados))
+}
+
+async fn crear_todas_las_tablas_si_no_existen() -> bool {
+    let tablas = obtener_todas_las_tablas();
+    for tabla in tablas {
+        let pool = crate::db::get_pool();
+        let query = format!(
+            "CREATE TABLE IF NOT EXISTS {} (
+                id SERIAL PRIMARY KEY,
+                id_cifrado TEXT NOT NULL,
+                estado BOOLEAN DEFAULT FALSE,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                fecha_minado TIMESTAMP NULL
+            )",
+            tabla
+        );
+        if let Err(e) = sqlx::query(&query).execute(pool.get_pool()).await {
+            print_rojo(&format!("Error al crear tabla {}: {}", tabla, e));
+            return false;
+        }
+        
+        let idx_query = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_estado ON {}(estado)",
+            tabla, tabla
+        );
+        let _ = sqlx::query(&idx_query).execute(pool.get_pool()).await;
+    }
+    true
 }
 
 pub async fn generar_monedas(lote: i64) -> bool {
@@ -79,7 +104,7 @@ pub async fn generar_monedas(lote: i64) -> bool {
     print_amarillo(&format!("Iniciando generacion de {} monedas", TOTAL_MONEDAS));
     print_azul(&format!("Longitud de IDs: {} caracteres", LONGITUD_ID));
     print_azul("Cifrado: AES-256-GCM individual por moneda");
-    print_azul(&format!("Caracteres permitidos: {} tipos", CARACTERES_PERMITIDOS.len()));
+    print_azul(&format!("Distribucion en 20 tablas de {} monedas cada una", MONEDAS_POR_TABLA));
     println!();
 
     if total_existentes == 0 {
@@ -89,6 +114,13 @@ pub async fn generar_monedas(lote: i64) -> bool {
             return false;
         }
         print_verde("Base de datos inicializada correctamente");
+        
+        print_blanco("Paso 2/3: Creando tablas de monedas...");
+        if !crear_todas_las_tablas_si_no_existen().await {
+            print_rojo("Error al crear las tablas de monedas");
+            return false;
+        }
+        print_verde("Tablas de monedas creadas correctamente");
         println!();
     }
 
@@ -101,8 +133,9 @@ pub async fn generar_monedas(lote: i64) -> bool {
 
         print_blanco(&format!("Generando lote {} - {} de {}", monedas_generadas + 1, monedas_generadas + lote_actual, TOTAL_MONEDAS));
 
-        let mut ids_cifrados_lote = Vec::new();
-        let mut ids_originales_lote = Vec::new();
+        let mut ids_originales_lote = Vec::with_capacity(lote_actual as usize);
+        let mut ids_cifrados_lote = Vec::with_capacity(lote_actual as usize);
+        let mut tablas_destino = Vec::with_capacity(lote_actual as usize);
 
         for i in 0..lote_actual {
             if (i + 1) % 1000 == 0 {
@@ -126,13 +159,17 @@ pub async fn generar_monedas(lote: i64) -> bool {
                 }
             };
 
+            let moneda_global_id = monedas_generadas + i + 1;
+            let nombre_tabla = obtener_nombre_tabla(moneda_global_id);
+
             ids_originales_lote.push(id_original);
             ids_cifrados_lote.push(id_cifrado);
+            tablas_destino.push(nombre_tabla);
         }
 
         for i in 0..lote_actual as usize {
             let _ = insertar_id_original(&ids_originales_lote[i]).await;
-            let _ = insertar_moneda_cifrada(&ids_cifrados_lote[i], false).await;
+            let _ = insertar_moneda_en_tabla(&tablas_destino[i], &ids_cifrados_lote[i], false).await;
         }
 
         monedas_generadas += lote_actual;
@@ -155,6 +192,7 @@ pub async fn generar_monedas(lote: i64) -> bool {
     print_blanco(&format!("Total de monedas generadas: {}", TOTAL_MONEDAS));
     print_blanco(&format!("Longitud de IDs: {} caracteres", LONGITUD_ID));
     print_blanco("Cifrado: AES-256-GCM (individual por moneda)");
+    print_blanco(&format!("Distribuidas en 20 tablas de {} monedas", MONEDAS_POR_TABLA));
     print_blanco(&format!("Tiempo total: {:.2} segundos ({:.1} minutos)", tiempo_total, minutos_total));
     print_blanco(&format!("Velocidad promedio: {:.0} monedas/seg", TOTAL_MONEDAS as f64 / tiempo_total));
     print_verde("=".repeat(60).as_str());

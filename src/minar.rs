@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use crossterm::{event::{self, Event, KeyCode}, terminal};
 use crate::logs::{log_error, log_event};
@@ -13,6 +14,7 @@ use crate::db::{
     obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles,
     verificar_id_original_existe
 };
+use crate::models::MonedaPendiente;
 
 const VELOCIDAD_DESCIFRADO: f64 = 0.05;
 
@@ -26,7 +28,7 @@ fn tecla_n_presionada() -> bool {
 }
 
 fn descifrar_id_moneda(id_cifrado_b64: &str, clave_aes: &[u8]) -> Option<String> {
-    let datos_combinados = match base64::engine::general_purpose::STANDARD.decode(id_cifrado_b64) {
+    let datos_combinados = match STANDARD.decode(id_cifrado_b64) {
         Ok(d) => d,
         Err(e) => {
             log_error(&format!("Error al decodificar ID cifrado: {}", e));
@@ -159,8 +161,7 @@ fn esperar_enter_para_comenzar() {
 }
 
 async fn minar_moneda_individual(
-    moneda_id: i32,
-    id_cifrado: &str,
+    moneda: &MonedaPendiente,
     numero_moneda: i32,
     total_disponibles: i64,
     actual: i64,
@@ -175,19 +176,20 @@ async fn minar_moneda_individual(
     print_amarillo(&format!("+------------------------------------------------------------+"));
     print_amarillo(&format!("| MINANDO MONEDA #{}", numero_moneda));
     print_amarillo(&format!("| Progreso: {}/{}", actual, total_disponibles));
+    print_amarillo(&format!("| Tabla origen: {}", moneda.tabla));
     print_amarillo(&format!("+------------------------------------------------------------+"));
     println!();
 
-    let id_original = match descifrar_id_moneda(id_cifrado, clave_aes) {
+    let id_original = match descifrar_id_moneda(&moneda.id_cifrado, clave_aes) {
         Some(id) => id,
         None => {
             print_rojo("  [ERROR] No se pudo descifrar el ID");
-            log_error(&format!("No se pudo descifrar la moneda #{}", numero_moneda));
+            log_error(&format!("No se pudo descifrar la moneda #{} de tabla {}", numero_moneda, moneda.tabla));
             return (false, "Error de descifrado".to_string());
         }
     };
 
-    let id_descifrado = match mostrar_transformacion_descifrado(id_cifrado, &id_original, stop_flag) {
+    let id_descifrado = match mostrar_transformacion_descifrado(&moneda.id_cifrado, &id_original, stop_flag) {
         Some(id) => id,
         None => return (false, "Descifrado interrumpido".to_string()),
     };
@@ -221,13 +223,13 @@ async fn minar_moneda_individual(
             return (false, "Minado detenido por usuario".to_string());
         }
 
-        if actualizar_estado_moneda(moneda_id, true).await {
+        if actualizar_estado_moneda(moneda, true).await {
             let preview = if id_descifrado.len() > 100 {
                 Some(&id_descifrado[0..100])
             } else {
                 Some(id_descifrado.as_str())
             };
-            let saldo_nuevo = match actualizar_saldo(1, Some(moneda_id), preview).await {
+            let saldo_nuevo = match actualizar_saldo(1, Some(moneda.id), preview, Some(&moneda.tabla)).await {
                 Ok(s) => s,
                 Err(e) => {
                     log_error(&format!("Error al actualizar saldo: {}", e));
@@ -237,10 +239,11 @@ async fn minar_moneda_individual(
 
             println!();
             print_verde(&format!("\n  [OK] MONEDA #{} MINADA EXITOSAMENTE", numero_moneda));
+            print_blanco(&format!("  Tabla origen: {}", moneda.tabla));
             print_blanco(&format!("  Saldo actual: ${}", saldo_nuevo));
             println!();
 
-            let _ = log_event(&format!("Moneda #{} minada exitosamente", numero_moneda));
+            let _ = log_event(&format!("Moneda #{} de tabla {} minada exitosamente", numero_moneda, moneda.tabla));
             return (true, "Minada exitosamente".to_string());
         } else {
             print_rojo("  [ERROR] No se pudo actualizar el estado de la moneda");
@@ -249,7 +252,7 @@ async fn minar_moneda_individual(
     } else {
         print_rojo("  [ERROR] ID INVALIDO - La moneda NO es autentica");
         print_rojo("  El ID descifrado no existe en el sistema");
-        log_error(&format!("ID invalido detectado en moneda #{}", numero_moneda));
+        log_error(&format!("ID invalido detectado en moneda #{} de tabla {}", numero_moneda, moneda.tabla));
         return (false, "ID invalido".to_string());
     }
 }
@@ -316,6 +319,7 @@ pub async fn minar_automatico() {
     print_blanco(&format!("Monedas disponibles: {}", disponibles));
     print_blanco(&format!("Saldo actual: ${}", saldo_actual));
     print_azul("Cifrado: AES-256-GCM");
+    print_azul(&format!("Distribuidas en 20 tablas"));
     print_cyan("\nPresiona 'N' en cualquier momento para detener el minado");
 
     esperar_enter_para_comenzar();
@@ -338,20 +342,19 @@ pub async fn minar_automatico() {
             break;
         }
 
-        let monedas_pendientes = obtener_siguiente_moneda_no_minada(1).await;
+        let moneda_pendiente = obtener_siguiente_moneda_no_minada().await;
 
-        if monedas_pendientes.is_empty() {
+        if moneda_pendiente.is_none() {
             print_verde("\n  No hay mas monedas disponibles para minar");
             break;
         }
 
-        let moneda = &monedas_pendientes[0];
+        let moneda = moneda_pendiente.unwrap();
         let numero_moneda = moneda.id;
         let actual = monedas_minadas_exitosas + monedas_con_error + 1;
 
         let (exito, mensaje) = minar_moneda_individual(
-            numero_moneda,
-            &moneda.id_cifrado,
+            &moneda,
             numero_moneda,
             disponibles,
             actual as i64,

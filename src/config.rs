@@ -1,9 +1,11 @@
 use std::env;
 use dotenv::dotenv;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
 use crate::logs::log_event;
 use crate::clave_embebida::obtener_clave_embebida;
+
+pub const TOTAL_MONEDAS: i64 = 2_000_000;
+pub const MONEDAS_POR_TABLA: i64 = 100_000;
+pub const TOTAL_TABLAS: i64 = TOTAL_MONEDAS / MONEDAS_POR_TABLA;
 
 fn log_event_internal(mensaje: &str) {
     let _ = log_event(&format!("CONFIG: {}", mensaje));
@@ -66,4 +68,17 @@ pub fn verificar_configuracion_postgres() -> (bool, Vec<String>) {
     }
 
     (errores.is_empty(), errores)
+}
+
+pub fn obtener_nombre_tabla(id_moneda_global: i64) -> String {
+    let numero_tabla = ((id_moneda_global - 1) / MONEDAS_POR_TABLA) % TOTAL_TABLAS;
+    format!("monedas_{:02}", numero_tabla)
+}
+
+pub fn obtener_todas_las_tablas() -> Vec<String> {
+    let mut tablas = Vec::with_capacity(TOTAL_TABLAS as usize);
+    for i in 0..TOTAL_TABLAS {
+        tablas.push(format!("monedas_{:02}", i));
+    }
+    tablas
 }

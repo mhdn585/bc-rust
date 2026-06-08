@@ -5,6 +5,7 @@ use sqlx::FromRow;
 pub struct MonedaPendiente {
     pub id: i32,
     pub id_cifrado: String,
+    pub tabla: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

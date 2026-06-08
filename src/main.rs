@@ -14,11 +14,11 @@ mod reiniciar;
 mod models;
 mod clave_embebida;
 
-use crate::config::{verificar_configuracion_postgres, inicializar_clave_sistema};
+use crate::config::{verificar_configuracion_postgres, inicializar_clave_sistema, TOTAL_MONEDAS};
 use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles};
 use crate::logs::log_event;
 use crate::utils::{limpiar_pantalla, print_verde, print_rojo, print_amarillo, print_azul, print_blanco, print_cyan, input_filtrado};
-use crate::crear_monedas::{generar_monedas, verificar_integridad, TOTAL_MONEDAS};
+use crate::crear_monedas::{generar_monedas, verificar_integridad};
 use crate::minar::minar_automatico;
 
 fn signal_handler() {
@@ -112,6 +112,7 @@ async fn mostrar_estado() -> (i64, i64, i64) {
         print_blanco("Cifrado: AES-256-GCM (individual por moneda)");
         print_blanco("Base de datos: PostgreSQL");
         print_blanco("Clave: Embebida en el codigo fuente");
+        print_blanco("Distribucion: 20 tablas de 100,000 monedas cada una");
     } else {
         print_rojo("No hay monedas en el sistema");
         print_amarillo(&format!("Ejecuta 'generar' para crear {} monedas", TOTAL_MONEDAS));
@@ -122,7 +123,7 @@ async fn mostrar_estado() -> (i64, i64, i64) {
 
 fn mostrar_ayuda() {
     print_amarillo("\nCOMANDOS:");
-    print_blanco("  generar   - Generar 1,000 monedas");
+    print_blanco("  generar   - Generar 2,000,000 monedas");
     print_blanco("  minar     - Minar monedas automaticamente");
     print_blanco("  estado    - Ver estado del sistema");
     print_blanco("  saldo     - Ver saldo actual");
@@ -133,12 +134,13 @@ fn mostrar_ayuda() {
     print_azul("\n  Cifrado: AES-256-GCM individual por moneda");
     print_azul("  Base de datos: PostgreSQL");
     print_azul("  Clave: Embebida permanentemente en el sistema");
+    print_azul("  Distribucion: 20 tablas de 100,000 monedas");
     println!();
 }
 
 fn confirmar_reinicio() -> bool {
     print_rojo("\nADVERTENCIA: Esto eliminara TODOS los datos del sistema");
-    print_rojo("  - 1,000 monedas generadas");
+    print_rojo("  - 2,000,000 monedas generadas");
     print_rojo("  - Saldo acumulado");
     print_rojo("  - Historial de minado");
     print_rojo("  - Logs del sistema");
@@ -159,6 +161,7 @@ fn confirmar_reinicio() -> bool {
 async fn comando_generar() {
     print_amarillo("\n=== GENERACION DE MONEDAS ===");
     print_blanco(&format!("Total a generar: {} monedas", TOTAL_MONEDAS));
+    print_azul("Distribucion: 20 tablas de 100,000 monedas cada una");
     print_azul("Este proceso puede tomar varios minutos");
     println!();
 
@@ -228,6 +231,7 @@ async fn comando_minar() {
         total, minadas, disponibles, saldo
     ));
     print_azul("Cifrado: AES-256-GCM individual por moneda");
+    print_azul("Distribucion: 20 tablas de 100,000 monedas cada una");
     print_cyan("\nPresiona 'N' en cualquier momento para detener el minado");
     println!();
 
