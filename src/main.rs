@@ -13,6 +13,8 @@ mod minar;
 mod reiniciar;
 mod models;
 
+///prueba de ramas en git
+
 use crate::config::{obtener_clave_crypto, verificar_configuracion_postgres};
 use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles};
 use crate::logs::log_event;
