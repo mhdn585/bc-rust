@@ -7,7 +7,7 @@ use chrono::Utc;
 use once_cell::sync::OnceCell;
 use crate::logs::{log_event, log_error};
 use crate::models::{MonedaPendiente, Estadisticas};
-use crate::config::{TOTAL_TABLAS, obtener_todas_las_tablas};
+use crate::crear_monedas::VALOR_MERCURY;
 
 pub struct DatabasePool {
     pool: PgPool,
@@ -33,7 +33,7 @@ impl DatabasePool {
             .connect(&database_url)
             .await?;
 
-        let _ = log_event("Pool de conexiones PostgreSQL inicializado");
+        let _ = log_event("Pool de conexiones PostgreSQL inicializado para Mercury");
         Ok(DatabasePool { pool })
     }
 
@@ -53,47 +53,6 @@ pub async fn init_db_pool() -> Result<(), sqlx::Error> {
 
 pub fn get_pool() -> Arc<DatabasePool> {
     DB_POOL.get().expect("Database pool not initialized. Call init_db_pool() first.").clone()
-}
-
-async fn crear_tabla_monedas_si_no_existe(num_tabla: i64) -> bool {
-    let pool = get_pool();
-    let nombre_tabla = format!("monedas_{:02}", num_tabla);
-    
-    let query_crear = format!(
-        "CREATE TABLE IF NOT EXISTS {} (
-            id SERIAL PRIMARY KEY,
-            id_cifrado TEXT NOT NULL,
-            estado BOOLEAN DEFAULT FALSE,
-            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            fecha_minado TIMESTAMP NULL
-        )",
-        nombre_tabla
-    );
-    
-    if let Err(e) = sqlx::query(&query_crear).execute(pool.get_pool()).await {
-        log_error(&format!("Error al crear tabla {}: {}", nombre_tabla, e));
-        return false;
-    }
-    
-    let query_indice_estado = format!(
-        "CREATE INDEX IF NOT EXISTS idx_{}_estado ON {}(estado)",
-        nombre_tabla, nombre_tabla
-    );
-    
-    if let Err(e) = sqlx::query(&query_indice_estado).execute(pool.get_pool()).await {
-        log_error(&format!("Error al crear indice en {}: {}", nombre_tabla, e));
-    }
-    
-    let query_indice_id = format!(
-        "CREATE INDEX IF NOT EXISTS idx_{}_id ON {}(id)",
-        nombre_tabla, nombre_tabla
-    );
-    
-    if let Err(e) = sqlx::query(&query_indice_id).execute(pool.get_pool()).await {
-        log_error(&format!("Error al crear indice id en {}: {}", nombre_tabla, e));
-    }
-    
-    true
 }
 
 pub async fn init_database() -> bool {
@@ -120,6 +79,21 @@ pub async fn init_database() -> bool {
     }
 
     let result = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS monedas_cifradas (
+            id SERIAL PRIMARY KEY,
+            id_cifrado TEXT NOT NULL,
+            estado BOOLEAN DEFAULT FALSE,
+            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            fecha_minado TIMESTAMP NULL
+        )"
+    ).execute(pool.get_pool()).await;
+
+    if let Err(e) = result {
+        log_error(&format!("Error al crear tabla monedas_cifradas: {}", e));
+        return false;
+    }
+
+    let result = sqlx::query(
         "CREATE TABLE IF NOT EXISTS saldo (
             id SERIAL PRIMARY KEY,
             saldo BIGINT DEFAULT 0,
@@ -133,19 +107,20 @@ pub async fn init_database() -> bool {
         return false;
     }
 
-    for i in 0..TOTAL_TABLAS {
-        if !crear_tabla_monedas_si_no_existe(i).await {
-            log_error(&format!("Error al crear tabla monedas_{:02}", i));
-            return false;
-        }
-    }
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_monedas_estado ON monedas_cifradas(estado)"
+    ).execute(pool.get_pool()).await;
+
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_monedas_fecha_creacion ON monedas_cifradas(fecha_creacion)"
+    ).execute(pool.get_pool()).await;
 
     let _ = sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_ids_originales_fecha ON ids_originales(fecha_creacion)"
     ).execute(pool.get_pool()).await;
 
     let _ = sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_ids_originales_id ON ids_originales(id)"
+        "CREATE INDEX IF NOT EXISTS idx_monedas_id ON monedas_cifradas(id)"
     ).execute(pool.get_pool()).await;
 
     let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM saldo")
@@ -159,10 +134,10 @@ pub async fn init_database() -> bool {
         let _ = sqlx::query(
             "INSERT INTO saldo (saldo, historial) VALUES (0, '[]'::jsonb)"
         ).execute(pool.get_pool()).await;
-        let _ = log_event("Registro de saldo inicial creado");
+        let _ = log_event("Registro de saldo inicial creado para Mercury");
     }
 
-    let _ = log_event("Base de datos inicializada correctamente");
+    let _ = log_event("Base de datos Mercury inicializada correctamente");
     true
 }
 
@@ -179,19 +154,16 @@ pub async fn insertar_id_original(id_original: &str) -> Option<i32> {
     row.map(|r| r.get(0))
 }
 
-pub async fn insertar_moneda_en_tabla(tabla: &str, id_cifrado: &str, estado: bool) -> Option<i32> {
+pub async fn insertar_moneda_cifrada(id_cifrado: &str, estado: bool) -> Option<i32> {
     let pool = get_pool();
-    let query = format!(
-        "INSERT INTO {} (id_cifrado, estado, fecha_creacion) VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id",
-        tabla
-    );
-    
-    let row = sqlx::query(&query)
-        .bind(id_cifrado)
-        .bind(estado)
-        .fetch_optional(pool.get_pool())
-        .await
-        .unwrap_or(None);
+    let row = sqlx::query(
+        "INSERT INTO monedas_cifradas (id_cifrado, estado, fecha_creacion) VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id"
+    )
+    .bind(id_cifrado)
+    .bind(estado)
+    .fetch_optional(pool.get_pool())
+    .await
+    .unwrap_or(None);
 
     row.map(|r| r.get(0))
 }
@@ -209,51 +181,34 @@ pub async fn verificar_id_original_existe(id_original: &str) -> bool {
     row.map(|r| r.0).unwrap_or(false)
 }
 
-pub async fn obtener_siguiente_moneda_no_minada() -> Option<MonedaPendiente> {
-    let tablas = obtener_todas_las_tablas();
-    
-    for tabla in tablas {
-        let pool = get_pool();
-        let query = format!(
-            "SELECT id, id_cifrado FROM {} WHERE estado = FALSE ORDER BY id LIMIT 1",
-            tabla
-        );
-        
-        let row: Option<(i32, String)> = sqlx::query_as(&query)
-            .fetch_optional(pool.get_pool())
-            .await
-            .unwrap_or(None);
-        
-        if let Some((id, id_cifrado)) = row {
-            return Some(MonedaPendiente {
-                id,
-                id_cifrado,
-                tabla,
-            });
-        }
-    }
-    
-    None
+pub async fn obtener_siguiente_moneda_no_minada(limite: i64) -> Vec<MonedaPendiente> {
+    let pool = get_pool();
+    let rows = sqlx::query_as::<_, MonedaPendiente>(
+        "SELECT id, id_cifrado FROM monedas_cifradas WHERE estado = FALSE ORDER BY id LIMIT $1"
+    )
+    .bind(limite)
+    .fetch_all(pool.get_pool())
+    .await
+    .unwrap_or_default();
+
+    rows
 }
 
-pub async fn actualizar_estado_moneda(moneda: &MonedaPendiente, estado: bool) -> bool {
+pub async fn actualizar_estado_moneda(moneda_id: i32, estado: bool) -> bool {
     let pool = get_pool();
-    let query = format!(
-        "UPDATE {} SET estado = $1, fecha_minado = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE fecha_minado END WHERE id = $3",
-        moneda.tabla
-    );
-    
-    let result = sqlx::query(&query)
-        .bind(estado)
-        .bind(estado)
-        .bind(moneda.id)
-        .execute(pool.get_pool())
-        .await;
+    let result = sqlx::query(
+        "UPDATE monedas_cifradas SET estado = $1, fecha_minado = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE fecha_minado END WHERE id = $3"
+    )
+    .bind(estado)
+    .bind(estado)
+    .bind(moneda_id)
+    .execute(pool.get_pool())
+    .await;
 
     match result {
         Ok(res) => res.rows_affected() > 0,
         Err(e) => {
-            log_error(&format!("Error al actualizar estado de moneda en {}: {}", moneda.tabla, e));
+            log_error(&format!("Error al actualizar estado de moneda Mercury: {}", e));
             false
         }
     }
@@ -268,7 +223,7 @@ pub async fn obtener_saldo() -> Result<i64, sqlx::Error> {
     Ok(row.map(|r| r.0).unwrap_or(0))
 }
 
-pub async fn actualizar_saldo(incremento: i64, id_moneda: Option<i32>, id_original_preview: Option<&str>, tabla_moneda: Option<&str>) -> Result<i64, sqlx::Error> {
+pub async fn actualizar_saldo(incremento: i64, id_moneda: Option<i32>, id_original_preview: Option<&str>) -> Result<i64, sqlx::Error> {
     let pool = get_pool();
 
     let row: Option<(i64,)> = sqlx::query_as(
@@ -281,20 +236,20 @@ pub async fn actualizar_saldo(incremento: i64, id_moneda: Option<i32>, id_origin
     let nuevo_saldo = row.map(|r| r.0).unwrap_or(0);
 
     if let Some(id_moneda_val) = id_moneda {
+        let valor_usd = incremento as f64 / 1000.0;
         let mut registro = serde_json::json!({
             "fecha": Utc::now().to_rfc3339(),
             "id_moneda": id_moneda_val,
             "incremento": incremento,
+            "valor_usd": format!("${:.3}", valor_usd),
             "saldo_nuevo": nuevo_saldo,
-            "tipo": "minado_exitoso"
+            "saldo_nuevo_usd": format!("${:.3}", nuevo_saldo as f64 / 1000.0),
+            "tipo": "minado_exitoso",
+            "moneda": "Mercury"
         });
 
         if let Some(preview) = id_original_preview {
             registro["id_original_preview"] = serde_json::json!(preview);
-        }
-
-        if let Some(tabla) = tabla_moneda {
-            registro["tabla_origen"] = serde_json::json!(tabla);
         }
 
         let _ = sqlx::query(
@@ -309,54 +264,30 @@ pub async fn actualizar_saldo(incremento: i64, id_moneda: Option<i32>, id_origin
 }
 
 pub async fn obtener_total_monedas() -> Result<i64, sqlx::Error> {
-    let tablas = obtener_todas_las_tablas();
-    let mut total = 0;
-    
-    for tabla in tablas {
-        let pool = get_pool();
-        let query = format!("SELECT COUNT(*) FROM {}", tabla);
-        let count: i64 = sqlx::query_scalar(&query)
-            .fetch_one(pool.get_pool())
-            .await
-            .unwrap_or(0);
-        total += count;
-    }
-    
-    Ok(total)
+    let pool = get_pool();
+    let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas")
+        .fetch_optional(pool.get_pool())
+        .await?;
+
+    Ok(row.map(|r| r.0).unwrap_or(0))
 }
 
 pub async fn obtener_monedas_minadas() -> Result<i64, sqlx::Error> {
-    let tablas = obtener_todas_las_tablas();
-    let mut total = 0;
-    
-    for tabla in tablas {
-        let pool = get_pool();
-        let query = format!("SELECT COUNT(*) FROM {} WHERE estado = TRUE", tabla);
-        let count: i64 = sqlx::query_scalar(&query)
-            .fetch_one(pool.get_pool())
-            .await
-            .unwrap_or(0);
-        total += count;
-    }
-    
-    Ok(total)
+    let pool = get_pool();
+    let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas WHERE estado = TRUE")
+        .fetch_optional(pool.get_pool())
+        .await?;
+
+    Ok(row.map(|r| r.0).unwrap_or(0))
 }
 
 pub async fn obtener_monedas_disponibles() -> Result<i64, sqlx::Error> {
-    let tablas = obtener_todas_las_tablas();
-    let mut total = 0;
-    
-    for tabla in tablas {
-        let pool = get_pool();
-        let query = format!("SELECT COUNT(*) FROM {} WHERE estado = FALSE", tabla);
-        let count: i64 = sqlx::query_scalar(&query)
-            .fetch_one(pool.get_pool())
-            .await
-            .unwrap_or(0);
-        total += count;
-    }
-    
-    Ok(total)
+    let pool = get_pool();
+    let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas WHERE estado = FALSE")
+        .fetch_optional(pool.get_pool())
+        .await?;
+
+    Ok(row.map(|r| r.0).unwrap_or(0))
 }
 
 pub async fn obtener_estadisticas_completas() -> Estadisticas {
@@ -367,10 +298,22 @@ pub async fn obtener_estadisticas_completas() -> Estadisticas {
         .await
         .unwrap_or(0);
 
-    let total_monedas = obtener_total_monedas().await.unwrap_or(0);
-    let monedas_minadas = obtener_monedas_minadas().await.unwrap_or(0);
-    let monedas_disponibles = obtener_monedas_disponibles().await.unwrap_or(0);
-    let saldo_actual = obtener_saldo().await.unwrap_or(0);
+    let total_monedas: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monedas_cifradas")
+        .fetch_one(pool.get_pool())
+        .await
+        .unwrap_or(0);
+
+    let monedas_minadas: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monedas_cifradas WHERE estado = TRUE")
+        .fetch_one(pool.get_pool())
+        .await
+        .unwrap_or(0);
+
+    let monedas_disponibles: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monedas_cifradas WHERE estado = FALSE")
+        .fetch_one(pool.get_pool())
+        .await
+        .unwrap_or(0);
+
+    let saldo_actual: i64 = obtener_saldo().await.unwrap_or(0);
 
     Estadisticas {
         total_ids_originales: total_ids,
@@ -378,19 +321,7 @@ pub async fn obtener_estadisticas_completas() -> Estadisticas {
         monedas_minadas,
         monedas_disponibles,
         saldo_actual,
-    }
-}
-
-pub async fn vaciar_tabla_monedas(tabla: &str) -> bool {
-    let pool = get_pool();
-    let query = format!("TRUNCATE TABLE {} RESTART IDENTITY CASCADE", tabla);
-    
-    match sqlx::query(&query).execute(pool.get_pool()).await {
-        Ok(_) => true,
-        Err(e) => {
-            log_error(&format!("Error al vaciar tabla {}: {}", tabla, e));
-            false
-        }
+        valor_por_moneda: VALOR_MERCURY,
     }
 }
 
@@ -401,10 +332,9 @@ pub async fn reiniciar_base_datos() -> bool {
         .execute(pool.get_pool())
         .await;
 
-    let tablas = obtener_todas_las_tablas();
-    for tabla in tablas {
-        let _ = vaciar_tabla_monedas(&tabla).await;
-    }
+    let _ = sqlx::query("TRUNCATE TABLE monedas_cifradas RESTART IDENTITY CASCADE")
+        .execute(pool.get_pool())
+        .await;
 
     let _ = sqlx::query("TRUNCATE TABLE saldo RESTART IDENTITY CASCADE")
         .execute(pool.get_pool())
@@ -414,7 +344,7 @@ pub async fn reiniciar_base_datos() -> bool {
         .execute(pool.get_pool())
         .await;
 
-    let _ = log_event("Base de datos reiniciada completamente");
+    let _ = log_event("Base de datos Mercury reiniciada completamente");
     true
 }
 

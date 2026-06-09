@@ -14,11 +14,11 @@ mod reiniciar;
 mod models;
 mod clave_embebida;
 
-use crate::config::{verificar_configuracion_postgres, inicializar_clave_sistema, TOTAL_MONEDAS};
+use crate::config::{verificar_configuracion_postgres, inicializar_clave_sistema};
 use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles};
 use crate::logs::log_event;
 use crate::utils::{limpiar_pantalla, print_verde, print_rojo, print_amarillo, print_azul, print_blanco, print_cyan, input_filtrado};
-use crate::crear_monedas::{generar_monedas, verificar_integridad};
+use crate::crear_monedas::{generar_monedas, verificar_integridad, TOTAL_MONEDAS, VALOR_MERCURY};
 use crate::minar::minar_automatico;
 
 fn signal_handler() {
@@ -101,46 +101,50 @@ async fn mostrar_estado() -> (i64, i64, i64) {
 
     let saldo = mostrar_saldo().await;
 
-    print_amarillo("\n=== ESTADO DEL SISTEMA ===");
+    print_amarillo("\n=== ESTADO DEL SISTEMA MERCURY ===");
 
     if total > 0 {
         let porcentaje = (minadas as f64 / total as f64) * 100.0;
-        print_blanco(&format!("Total monedas: {}", total));
+        print_blanco(&format!("Total monedas Mercury: {}", total));
+        print_blanco(&format!("Valor total del sistema: ${:.3} USD", (total * VALOR_MERCURY) as f64 / 1000.0));
         print_blanco(&format!("Monedas minadas: {} ({:.2}%)", minadas, porcentaje));
+        print_blanco(&format!("Valor minado: ${:.3} USD", (minadas * VALOR_MERCURY) as f64 / 1000.0));
         print_blanco(&format!("Monedas disponibles: {}", disponibles));
-        print_blanco(&format!("Saldo: ${}", saldo));
+        print_blanco(&format!("Valor disponible: ${:.3} USD", (disponibles * VALOR_MERCURY) as f64 / 1000.0));
+        print_blanco(&format!("Saldo: ${:.3} USD", saldo as f64 / 1000.0));
+        print_blanco(&format!("Valor por Mercury: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
         print_blanco("Cifrado: AES-256-GCM (individual por moneda)");
         print_blanco("Base de datos: PostgreSQL");
         print_blanco("Clave: Embebida en el codigo fuente");
-        print_blanco("Distribucion: 20 tablas de 100,000 monedas cada una");
     } else {
-        print_rojo("No hay monedas en el sistema");
-        print_amarillo(&format!("Ejecuta 'generar' para crear {} monedas", TOTAL_MONEDAS));
+        print_rojo("No hay monedas Mercury en el sistema");
+        print_amarillo(&format!("Ejecuta 'generar' para crear {} monedas Mercury", TOTAL_MONEDAS));
     }
 
     (total, minadas, disponibles)
 }
 
 fn mostrar_ayuda() {
-    print_amarillo("\nCOMANDOS:");
-    print_blanco("  generar   - Generar 2,000,000 monedas");
-    print_blanco("  minar     - Minar monedas automaticamente");
-    print_blanco("  estado    - Ver estado del sistema");
-    print_blanco("  saldo     - Ver saldo actual");
+    print_amarillo("\nCOMANDOS MERCURY:");
+    print_blanco("  generar   - Generar 100,000 monedas Mercury (valor $67.998 c/u)");
+    print_blanco("  minar     - Minar monedas Mercury automaticamente");
+    print_blanco("  estado    - Ver estado del sistema Mercury");
+    print_blanco("  saldo     - Ver saldo actual en USD");
     print_blanco("  reiniciar - Reiniciar sistema (elimina TODOS los datos)");
-    print_blanco("  verificar - Verificar integridad de las monedas");
+    print_blanco("  verificar - Verificar integridad de las monedas Mercury");
     print_blanco("  help      - Esta ayuda");
     print_blanco("  salir     - Salir del programa");
-    print_azul("\n  Cifrado: AES-256-GCM individual por moneda");
+    print_azul("\n  Moneda: Mercury - Valor: $67.998 USD cada una");
+    print_azul("  Cifrado: AES-256-GCM individual por moneda");
     print_azul("  Base de datos: PostgreSQL");
     print_azul("  Clave: Embebida permanentemente en el sistema");
-    print_azul("  Distribucion: 20 tablas de 100,000 monedas");
     println!();
 }
 
 fn confirmar_reinicio() -> bool {
     print_rojo("\nADVERTENCIA: Esto eliminara TODOS los datos del sistema");
-    print_rojo("  - 2,000,000 monedas generadas");
+    print_rojo(&format!("  - {} monedas Mercury generadas", TOTAL_MONEDAS));
+    print_rojo(&format!("  - Valor total: ${:.3} USD", (TOTAL_MONEDAS * VALOR_MERCURY) as f64 / 1000.0));
     print_rojo("  - Saldo acumulado");
     print_rojo("  - Historial de minado");
     print_rojo("  - Logs del sistema");
@@ -159,9 +163,10 @@ fn confirmar_reinicio() -> bool {
 }
 
 async fn comando_generar() {
-    print_amarillo("\n=== GENERACION DE MONEDAS ===");
-    print_blanco(&format!("Total a generar: {} monedas", TOTAL_MONEDAS));
-    print_azul("Distribucion: 20 tablas de 100,000 monedas cada una");
+    print_amarillo("\n=== GENERACION DE MERCURY ===");
+    print_blanco(&format!("Total a generar: {} monedas Mercury", TOTAL_MONEDAS));
+    print_blanco(&format!("Valor por moneda: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
+    print_blanco(&format!("Valor total del sistema: ${:.3} USD", (TOTAL_MONEDAS * VALOR_MERCURY) as f64 / 1000.0));
     print_azul("Este proceso puede tomar varios minutos");
     println!();
 
@@ -174,9 +179,9 @@ async fn comando_generar() {
 
     println!();
     if generar_monedas(10000).await {
-        print_verde("\nMonedas generadas exitosamente");
+        print_verde("\nMonedas Mercury generadas exitosamente");
     } else {
-        print_rojo("\nError al generar monedas");
+        print_rojo("\nError al generar monedas Mercury");
         print_rojo("Revisa sistema.log para mas informacion");
     }
 
@@ -212,26 +217,28 @@ async fn comando_minar() {
     };
 
     if total == 0 {
-        print_rojo("\nNo hay monedas en el sistema");
-        print_amarillo("Ejecuta 'generar' primero para crear las monedas");
+        print_rojo("\nNo hay monedas Mercury en el sistema");
+        print_amarillo("Ejecuta 'generar' primero para crear las monedas Mercury");
         input_filtrado("\nPresiona ENTER para continuar...");
         return;
     }
 
     if disponibles == 0 {
-        print_verde("\nTodas las monedas ya han sido minadas");
+        print_verde("\nTodas las monedas Mercury ya han sido minadas");
+        let valor_total = minadas * VALOR_MERCURY;
+        print_blanco(&format!("Valor total minado: ${:.3} USD", valor_total as f64 / 1000.0));
         input_filtrado("\nPresiona ENTER para continuar...");
         return;
     }
 
     let saldo = mostrar_saldo().await;
-    print_amarillo("\n=== MINADO DE MONEDAS ===");
+    print_amarillo("\n=== MINADO DE MERCURY ===");
     print_azul(&format!(
-        "Total: {} monedas | Minadas: {} | Disponibles: {} | Saldo: ${}",
-        total, minadas, disponibles, saldo
+        "Total: {} monedas | Minadas: {} | Disponibles: {} | Saldo: ${:.3} USD",
+        total, minadas, disponibles, saldo as f64 / 1000.0
     ));
+    print_azul(&format!("Valor por Mercury: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_azul("Cifrado: AES-256-GCM individual por moneda");
-    print_azul("Distribucion: 20 tablas de 100,000 monedas cada una");
     print_cyan("\nPresiona 'N' en cualquier momento para detener el minado");
     println!();
 
@@ -241,18 +248,18 @@ async fn comando_minar() {
 }
 
 async fn comando_verificar() {
-    print_amarillo("\n=== VERIFICACION DE INTEGRIDAD ===");
+    print_amarillo("\n=== VERIFICACION DE INTEGRIDAD MERCURY ===");
     if verificar_integridad().await {
-        print_verde("Sistema verificado correctamente");
+        print_verde("Sistema Mercury verificado correctamente");
     } else {
-        print_rojo("Se encontraron errores en el sistema");
+        print_rojo("Se encontraron errores en el sistema Mercury");
         print_rojo("Ejecuta 'reiniciar' y luego 'generar' para reconstruir");
     }
     input_filtrado("\nPresiona ENTER para continuar...");
 }
 
 async fn inicializar_sistema() {
-    let _ = log_event("Sistema iniciado con PostgreSQL y clave embebida");
+    let _ = log_event("Sistema Mercury iniciado con PostgreSQL y clave embebida");
 
     if !verificar_clave_sistema() {
         print_rojo("No se puede continuar sin una clave criptografica valida");
@@ -294,9 +301,11 @@ async fn main() {
             },
             "saldo" => {
                 limpiar_pantalla();
-                print_amarillo("\n=== SALDO ACTUAL ===");
+                print_amarillo("\n=== SALDO ACTUAL EN USD ===");
                 let saldo = mostrar_saldo().await;
-                print_verde(&format!("${}", saldo));
+                let monedas_minadas = saldo / VALOR_MERCURY;
+                print_verde(&format!("${:.3} USD", saldo as f64 / 1000.0));
+                print_blanco(&format!("Equivalente a {} monedas Mercury minadas", monedas_minadas));
                 input_filtrado("\nPresiona ENTER para continuar...");
             },
             "estado" => {
@@ -311,14 +320,14 @@ async fn main() {
             "reiniciar" => {
                 limpiar_pantalla();
                 if confirmar_reinicio() {
-                    print_amarillo("Reiniciando sistema...");
+                    print_amarillo("Reiniciando sistema Mercury...");
                     crate::reiniciar::eliminar_archivo_log();
                     if crate::reiniciar::reiniciar_sistema_postgres(false, true, true).await {
-                        print_verde("Sistema reiniciado correctamente");
-                        let _ = log_event("Sistema reiniciado por el usuario");
-                        print_amarillo("Ejecuta 'generar' para crear nuevas monedas");
+                        print_verde("Sistema Mercury reiniciado correctamente");
+                        let _ = log_event("Sistema Mercury reiniciado por el usuario");
+                        print_amarillo("Ejecuta 'generar' para crear nuevas monedas Mercury");
                     } else {
-                        print_rojo("Error al reiniciar el sistema");
+                        print_rojo("Error al reiniciar el sistema Mercury");
                     }
                     input_filtrado("\nPresiona ENTER para continuar...");
                 } else {
@@ -332,8 +341,8 @@ async fn main() {
                 input_filtrado("Presiona ENTER para continuar...");
             },
             "salir" | "exit" | "quit" => {
-                print_azul("\nSaliendo...");
-                let _ = log_event("Programa cerrado por el usuario");
+                print_azul("\nSaliendo del sistema Mercury...");
+                let _ = log_event("Programa Mercury cerrado por el usuario");
                 cerrar_pool().await;
                 process::exit(0);
             },

@@ -1,17 +1,19 @@
 use rand::Rng;
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use crate::logs::log_event;
 use crate::utils::{print_verde, print_rojo, print_amarillo, print_blanco, print_azul};
-use crate::config::{obtener_clave_crypto, TOTAL_MONEDAS, MONEDAS_POR_TABLA, obtener_nombre_tabla, obtener_todas_las_tablas};
+use crate::config::obtener_clave_crypto;
 use crate::crypto_aes::cifrar_datos_aes;
 use crate::db::{
-    insertar_id_original, insertar_moneda_en_tabla, verificar_id_original_existe,
-    obtener_total_monedas, obtener_estadisticas_completas, init_database
+    insertar_id_original, insertar_moneda_cifrada, verificar_id_original_existe,
+    obtener_total_monedas, obtener_estadisticas_completas,
+    init_database
 };
 use std::time::Instant;
 
+pub const TOTAL_MONEDAS: i64 = 100000;
 pub const LONGITUD_ID: usize = 1024;
+pub const VALOR_MERCURY: i64 = 67998;
 
 const CARACTERES_PERMITIDOS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
 
@@ -43,48 +45,20 @@ fn cifrar_id_individual(id_original: &str, clave_aes: &[u8]) -> Option<String> {
     let mut datos_combinados = nonce;
     datos_combinados.extend_from_slice(&tag);
     datos_combinados.extend_from_slice(&ciphertext);
-    Some(STANDARD.encode(&datos_combinados))
-}
-
-async fn crear_todas_las_tablas_si_no_existen() -> bool {
-    let tablas = obtener_todas_las_tablas();
-    for tabla in tablas {
-        let pool = crate::db::get_pool();
-        let query = format!(
-            "CREATE TABLE IF NOT EXISTS {} (
-                id SERIAL PRIMARY KEY,
-                id_cifrado TEXT NOT NULL,
-                estado BOOLEAN DEFAULT FALSE,
-                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                fecha_minado TIMESTAMP NULL
-            )",
-            tabla
-        );
-        if let Err(e) = sqlx::query(&query).execute(pool.get_pool()).await {
-            print_rojo(&format!("Error al crear tabla {}: {}", tabla, e));
-            return false;
-        }
-        
-        let idx_query = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_estado ON {}(estado)",
-            tabla, tabla
-        );
-        let _ = sqlx::query(&idx_query).execute(pool.get_pool()).await;
-    }
-    true
+    Some(base64::engine::general_purpose::STANDARD.encode(&datos_combinados))
 }
 
 pub async fn generar_monedas(lote: i64) -> bool {
     let total_existentes = obtener_total_monedas().await.unwrap_or(0);
 
     if total_existentes >= TOTAL_MONEDAS {
-        print_verde(&format!("Ya existen {} monedas en el sistema", total_existentes));
+        print_verde(&format!("Ya existen {} monedas Mercury en el sistema", total_existentes));
         return true;
     }
 
     if total_existentes > 0 {
-        print_amarillo(&format!("Se encontraron {} monedas existentes", total_existentes));
-        print_amarillo(&format!("Faltan generar {} monedas", TOTAL_MONEDAS - total_existentes));
+        print_amarillo(&format!("Se encontraron {} monedas Mercury existentes", total_existentes));
+        print_amarillo(&format!("Faltan generar {} monedas Mercury", TOTAL_MONEDAS - total_existentes));
         print!("Deseas continuar con la generacion? (s/n): ");
         let mut respuesta = String::new();
         std::io::stdin().read_line(&mut respuesta).unwrap();
@@ -101,10 +75,11 @@ pub async fn generar_monedas(lote: i64) -> bool {
     }
     let clave_aes = clave_aes.unwrap();
 
-    print_amarillo(&format!("Iniciando generacion de {} monedas", TOTAL_MONEDAS));
+    print_amarillo(&format!("Iniciando generacion de {} monedas Mercury", TOTAL_MONEDAS));
+    print_azul(&format!("Valor por moneda: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_azul(&format!("Longitud de IDs: {} caracteres", LONGITUD_ID));
     print_azul("Cifrado: AES-256-GCM individual por moneda");
-    print_azul(&format!("Distribucion en 20 tablas de {} monedas cada una", MONEDAS_POR_TABLA));
+    print_azul(&format!("Caracteres permitidos: {} tipos", CARACTERES_PERMITIDOS.len()));
     println!();
 
     if total_existentes == 0 {
@@ -114,13 +89,6 @@ pub async fn generar_monedas(lote: i64) -> bool {
             return false;
         }
         print_verde("Base de datos inicializada correctamente");
-        
-        print_blanco("Paso 2/3: Creando tablas de monedas...");
-        if !crear_todas_las_tablas_si_no_existen().await {
-            print_rojo("Error al crear las tablas de monedas");
-            return false;
-        }
-        print_verde("Tablas de monedas creadas correctamente");
         println!();
     }
 
@@ -131,11 +99,10 @@ pub async fn generar_monedas(lote: i64) -> bool {
         let lote_actual = std::cmp::min(lote, TOTAL_MONEDAS - monedas_generadas);
         let inicio_lote = Instant::now();
 
-        print_blanco(&format!("Generando lote {} - {} de {}", monedas_generadas + 1, monedas_generadas + lote_actual, TOTAL_MONEDAS));
+        print_blanco(&format!("Generando lote {} - {} de {} monedas Mercury", monedas_generadas + 1, monedas_generadas + lote_actual, TOTAL_MONEDAS));
 
-        let mut ids_originales_lote = Vec::with_capacity(lote_actual as usize);
-        let mut ids_cifrados_lote = Vec::with_capacity(lote_actual as usize);
-        let mut tablas_destino = Vec::with_capacity(lote_actual as usize);
+        let mut ids_cifrados_lote = Vec::new();
+        let mut ids_originales_lote = Vec::new();
 
         for i in 0..lote_actual {
             if (i + 1) % 1000 == 0 {
@@ -159,17 +126,13 @@ pub async fn generar_monedas(lote: i64) -> bool {
                 }
             };
 
-            let moneda_global_id = monedas_generadas + i + 1;
-            let nombre_tabla = obtener_nombre_tabla(moneda_global_id);
-
             ids_originales_lote.push(id_original);
             ids_cifrados_lote.push(id_cifrado);
-            tablas_destino.push(nombre_tabla);
         }
 
         for i in 0..lote_actual as usize {
             let _ = insertar_id_original(&ids_originales_lote[i]).await;
-            let _ = insertar_moneda_en_tabla(&tablas_destino[i], &ids_cifrados_lote[i], false).await;
+            let _ = insertar_moneda_cifrada(&ids_cifrados_lote[i], false).await;
         }
 
         monedas_generadas += lote_actual;
@@ -187,29 +150,30 @@ pub async fn generar_monedas(lote: i64) -> bool {
 
     println!();
     print_verde("=".repeat(60).as_str());
-    print_verde("GENERACION COMPLETADA EXITOSAMENTE");
+    print_verde("GENERACION DE MERCURY COMPLETADA EXITOSAMENTE");
     print_verde("=".repeat(60).as_str());
-    print_blanco(&format!("Total de monedas generadas: {}", TOTAL_MONEDAS));
+    print_blanco(&format!("Total de monedas Mercury generadas: {}", TOTAL_MONEDAS));
+    print_blanco(&format!("Valor total en el sistema: ${:.3} USD", (TOTAL_MONEDAS * VALOR_MERCURY) as f64 / 1000.0));
+    print_blanco(&format!("Valor por moneda: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_blanco(&format!("Longitud de IDs: {} caracteres", LONGITUD_ID));
     print_blanco("Cifrado: AES-256-GCM (individual por moneda)");
-    print_blanco(&format!("Distribuidas en 20 tablas de {} monedas", MONEDAS_POR_TABLA));
     print_blanco(&format!("Tiempo total: {:.2} segundos ({:.1} minutos)", tiempo_total, minutos_total));
     print_blanco(&format!("Velocidad promedio: {:.0} monedas/seg", TOTAL_MONEDAS as f64 / tiempo_total));
     print_verde("=".repeat(60).as_str());
 
-    let _ = log_event(&format!("Generacion de {} monedas completada en {:.2}s", TOTAL_MONEDAS, tiempo_total));
+    let _ = log_event(&format!("Generacion de {} monedas Mercury completada en {:.2}s", TOTAL_MONEDAS, tiempo_total));
     true
 }
 
 pub async fn verificar_integridad() -> bool {
     let estadisticas = obtener_estadisticas_completas().await;
 
-    print_amarillo("Verificando integridad del sistema...");
+    print_amarillo("Verificando integridad del sistema Mercury...");
     print_blanco(&format!("  IDs originales: {}", estadisticas.total_ids_originales));
     print_blanco(&format!("  Monedas cifradas: {}", estadisticas.total_monedas_cifradas));
     print_blanco(&format!("  Monedas minadas: {}", estadisticas.monedas_minadas));
     print_blanco(&format!("  Monedas disponibles: {}", estadisticas.monedas_disponibles));
-    print_blanco(&format!("  Saldo actual: ${}", estadisticas.saldo_actual));
+    print_blanco(&format!("  Saldo actual: ${:.3} USD", estadisticas.saldo_actual as f64 / 1000.0));
 
     if estadisticas.total_ids_originales != TOTAL_MONEDAS {
         print_rojo(&format!("ERROR: IDs originales {} != {}", estadisticas.total_ids_originales, TOTAL_MONEDAS));

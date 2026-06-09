@@ -2,7 +2,6 @@ use std::io::{self, Write};
 use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use crossterm::{event::{self, Event, KeyCode}, terminal};
 use crate::logs::{log_error, log_event};
@@ -14,7 +13,7 @@ use crate::db::{
     obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles,
     verificar_id_original_existe
 };
-use crate::models::MonedaPendiente;
+use crate::crear_monedas::VALOR_MERCURY;
 
 const VELOCIDAD_DESCIFRADO: f64 = 0.05;
 
@@ -28,7 +27,7 @@ fn tecla_n_presionada() -> bool {
 }
 
 fn descifrar_id_moneda(id_cifrado_b64: &str, clave_aes: &[u8]) -> Option<String> {
-    let datos_combinados = match STANDARD.decode(id_cifrado_b64) {
+    let datos_combinados = match base64::engine::general_purpose::STANDARD.decode(id_cifrado_b64) {
         Ok(d) => d,
         Err(e) => {
             log_error(&format!("Error al decodificar ID cifrado: {}", e));
@@ -65,14 +64,14 @@ fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, stop_f
 
     println!();
     print_amarillo("+------------------------------------------------------------+");
-    print_amarillo("|           DESCIFRADO EN VIVO                               |");
+    print_amarillo("|           DESCIFRADO EN VIVO - MERCURY                    |");
     print_amarillo("+------------------------------------------------------------+");
     println!();
 
     print_blanco("ID CIFRADO (AES-256-GCM):");
     print_azul(id_cifrado);
     println!();
-    print_cyan("Descifrando automaticamente...");
+    print_cyan("Descifrando moneda Mercury automaticamente...");
     println!();
 
     let mut texto_descifrado = String::new();
@@ -145,23 +144,24 @@ fn mostrar_animacion_minado(stop_flag: &Arc<AtomicBool>) -> bool {
         }
         let barra = "#".repeat(i) + &".".repeat(20 - i);
         let porcentaje = i * 5;
-        print!("\r  Minando: [{}] {}%", barra, porcentaje);
+        print!("\r  Minando Mercury: [{}] {}%", barra, porcentaje);
         io::stdout().flush().unwrap();
         std::thread::sleep(Duration::from_millis(30));
     }
-    println!("\r  [OK] Moneda minada exitosamente                              ");
+    println!("\r  [OK] Mercury minado exitosamente                              ");
     true
 }
 
 fn esperar_enter_para_comenzar() {
-    print_cyan("\nPresiona ENTER para comenzar el minado automatico...");
+    print_cyan("\nPresiona ENTER para comenzar el minado automatico de Mercury...");
     io::stdout().flush().unwrap();
     let mut buffer = String::new();
     io::stdin().read_line(&mut buffer).unwrap();
 }
 
 async fn minar_moneda_individual(
-    moneda: &MonedaPendiente,
+    moneda_id: i32,
+    id_cifrado: &str,
     numero_moneda: i32,
     total_disponibles: i64,
     actual: i64,
@@ -174,22 +174,22 @@ async fn minar_moneda_individual(
 
     println!();
     print_amarillo(&format!("+------------------------------------------------------------+"));
-    print_amarillo(&format!("| MINANDO MONEDA #{}", numero_moneda));
+    print_amarillo(&format!("| MINANDO MERCURY #{}", numero_moneda));
+    print_amarillo(&format!("| Valor: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_amarillo(&format!("| Progreso: {}/{}", actual, total_disponibles));
-    print_amarillo(&format!("| Tabla origen: {}", moneda.tabla));
     print_amarillo(&format!("+------------------------------------------------------------+"));
     println!();
 
-    let id_original = match descifrar_id_moneda(&moneda.id_cifrado, clave_aes) {
+    let id_original = match descifrar_id_moneda(id_cifrado, clave_aes) {
         Some(id) => id,
         None => {
             print_rojo("  [ERROR] No se pudo descifrar el ID");
-            log_error(&format!("No se pudo descifrar la moneda #{} de tabla {}", numero_moneda, moneda.tabla));
+            log_error(&format!("No se pudo descifrar la moneda Mercury #{}", numero_moneda));
             return (false, "Error de descifrado".to_string());
         }
     };
 
-    let id_descifrado = match mostrar_transformacion_descifrado(&moneda.id_cifrado, &id_original, stop_flag) {
+    let id_descifrado = match mostrar_transformacion_descifrado(id_cifrado, &id_original, stop_flag) {
         Some(id) => id,
         None => return (false, "Descifrado interrumpido".to_string()),
     };
@@ -211,7 +211,7 @@ async fn minar_moneda_individual(
     let existe = verificar_id_original_existe(&id_descifrado).await;
 
     if existe {
-        print_verde("  [OK] ID VALIDO - La moneda es autentica");
+        print_verde("  [OK] ID VALIDO - La moneda Mercury es autentica");
         println!();
         
         let minado_exitoso = mostrar_animacion_minado(stop_flag);
@@ -223,13 +223,13 @@ async fn minar_moneda_individual(
             return (false, "Minado detenido por usuario".to_string());
         }
 
-        if actualizar_estado_moneda(moneda, true).await {
+        if actualizar_estado_moneda(moneda_id, true).await {
             let preview = if id_descifrado.len() > 100 {
                 Some(&id_descifrado[0..100])
             } else {
                 Some(id_descifrado.as_str())
             };
-            let saldo_nuevo = match actualizar_saldo(1, Some(moneda.id), preview, Some(&moneda.tabla)).await {
+            let saldo_nuevo = match actualizar_saldo(VALOR_MERCURY, Some(moneda_id), preview).await {
                 Ok(s) => s,
                 Err(e) => {
                     log_error(&format!("Error al actualizar saldo: {}", e));
@@ -238,21 +238,21 @@ async fn minar_moneda_individual(
             };
 
             println!();
-            print_verde(&format!("\n  [OK] MONEDA #{} MINADA EXITOSAMENTE", numero_moneda));
-            print_blanco(&format!("  Tabla origen: {}", moneda.tabla));
-            print_blanco(&format!("  Saldo actual: ${}", saldo_nuevo));
+            print_verde(&format!("\n  [OK] MERCURY #{} MINADO EXITOSAMENTE", numero_moneda));
+            print_verde(&format!("  Ganaste: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
+            print_blanco(&format!("  Saldo actual: ${:.3} USD", saldo_nuevo as f64 / 1000.0));
             println!();
 
-            let _ = log_event(&format!("Moneda #{} de tabla {} minada exitosamente", numero_moneda, moneda.tabla));
+            let _ = log_event(&format!("Moneda Mercury #{} minada exitosamente, valor ${}", numero_moneda, VALOR_MERCURY as f64 / 1000.0));
             return (true, "Minada exitosamente".to_string());
         } else {
             print_rojo("  [ERROR] No se pudo actualizar el estado de la moneda");
             return (false, "Error al actualizar estado".to_string());
         }
     } else {
-        print_rojo("  [ERROR] ID INVALIDO - La moneda NO es autentica");
+        print_rojo("  [ERROR] ID INVALIDO - La moneda Mercury NO es autentica");
         print_rojo("  El ID descifrado no existe en el sistema");
-        log_error(&format!("ID invalido detectado en moneda #{} de tabla {}", numero_moneda, moneda.tabla));
+        log_error(&format!("ID invalido detectado en moneda Mercury #{}", numero_moneda));
         return (false, "ID invalido".to_string());
     }
 }
@@ -297,29 +297,31 @@ pub async fn minar_automatico() {
     };
 
     if total_monedas == 0 {
-        print_rojo("No hay monedas en el sistema");
-        print_amarillo("Ejecuta 'generar' primero para crear las monedas");
+        print_rojo("No hay monedas Mercury en el sistema");
+        print_amarillo("Ejecuta 'generar' primero para crear las monedas Mercury");
         return;
     }
 
     if disponibles == 0 {
-        print_verde("Todas las monedas ya han sido minadas");
-        print_blanco(&format!("Total: {} monedas - Todas minadas", total_monedas));
+        print_verde("Todas las monedas Mercury ya han sido minadas");
+        print_blanco(&format!("Total: {} monedas Mercury - Todas minadas", total_monedas));
+        let valor_total = minadas_antes * VALOR_MERCURY;
+        print_blanco(&format!("Valor total minado: ${:.3} USD", valor_total as f64 / 1000.0));
         return;
     }
 
     let saldo_actual = obtener_saldo().await.unwrap_or(0);
 
     print_azul("+------------------------------------------------------------+");
-    print_azul("|                    MINADO AUTOMATICO                       |");
+    print_azul("|              MINADO AUTOMATICO - MERCURY                  |");
     print_azul("+------------------------------------------------------------+");
     println!();
-    print_blanco(&format!("Total monedas: {}", total_monedas));
+    print_blanco(&format!("Total monedas Mercury: {}", total_monedas));
     print_blanco(&format!("Monedas minadas: {}", minadas_antes));
     print_blanco(&format!("Monedas disponibles: {}", disponibles));
-    print_blanco(&format!("Saldo actual: ${}", saldo_actual));
+    print_blanco(&format!("Valor por Mercury: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
+    print_blanco(&format!("Saldo actual: ${:.3} USD", saldo_actual as f64 / 1000.0));
     print_azul("Cifrado: AES-256-GCM");
-    print_azul(&format!("Distribuidas en 20 tablas"));
     print_cyan("\nPresiona 'N' en cualquier momento para detener el minado");
 
     esperar_enter_para_comenzar();
@@ -342,19 +344,20 @@ pub async fn minar_automatico() {
             break;
         }
 
-        let moneda_pendiente = obtener_siguiente_moneda_no_minada().await;
+        let monedas_pendientes = obtener_siguiente_moneda_no_minada(1).await;
 
-        if moneda_pendiente.is_none() {
-            print_verde("\n  No hay mas monedas disponibles para minar");
+        if monedas_pendientes.is_empty() {
+            print_verde("\n  No hay mas monedas Mercury disponibles para minar");
             break;
         }
 
-        let moneda = moneda_pendiente.unwrap();
+        let moneda = &monedas_pendientes[0];
         let numero_moneda = moneda.id;
         let actual = monedas_minadas_exitosas + monedas_con_error + 1;
 
         let (exito, mensaje) = minar_moneda_individual(
-            &moneda,
+            numero_moneda,
+            &moneda.id_cifrado,
             numero_moneda,
             disponibles,
             actual as i64,
@@ -396,23 +399,30 @@ pub async fn minar_automatico() {
         println!();
     }
     
-    print_blanco(&format!("Monedas procesadas: {}", monedas_minadas_exitosas + monedas_con_error));
-    print_verde(&format!("Monedas minadas exitosamente: {}", monedas_minadas_exitosas));
+    print_blanco(&format!("Monedas Mercury procesadas: {}", monedas_minadas_exitosas + monedas_con_error));
+    print_verde(&format!("Monedas Mercury minadas exitosamente: {}", monedas_minadas_exitosas));
     if monedas_con_error > 0 {
         print_rojo(&format!("Monedas con error: {}", monedas_con_error));
     }
 
+    let ganancia_total = monedas_minadas_exitosas * VALOR_MERCURY;
+    print_verde(&format!("Ganancia total en esta sesion: ${:.3} USD", ganancia_total as f64 / 1000.0));
+
     let saldo_final = obtener_saldo().await.unwrap_or(0);
-    print_blanco(&format!("Saldo inicial: ${}", minadas_antes));
-    print_verde(&format!("Saldo final: ${}", saldo_final));
-    print_azul(&format!("Incremento: +${}", saldo_final - minadas_antes));
+    let saldo_inicial_valor = minadas_antes * VALOR_MERCURY;
+    print_blanco(&format!("Saldo inicial: ${:.3} USD", saldo_inicial_valor as f64 / 1000.0));
+    print_verde(&format!("Saldo final: ${:.3} USD", saldo_final as f64 / 1000.0));
+    print_azul(&format!("Incremento: +${:.3} USD", (saldo_final - (minadas_antes * VALOR_MERCURY)) as f64 / 1000.0));
 
     let total_minadas_final = obtener_monedas_minadas().await.unwrap_or(0);
-    print_blanco(&format!("Total monedas minadas: {}", total_minadas_final));
+    print_blanco(&format!("Total monedas Mercury minadas: {}", total_minadas_final));
+    let valor_total_minado = total_minadas_final * VALOR_MERCURY;
+    print_blanco(&format!("Valor total minado acumulado: ${:.3} USD", valor_total_minado as f64 / 1000.0));
 
     if total_minadas_final == total_monedas {
-        print_verde("\n  *** TODAS LAS MONEDAS HAN SIDO MINADAS ***");
+        print_verde("\n  *** TODAS LAS MERCURY HAN SIDO MINADAS ***");
+        print_verde(&format!("  Valor total generado: ${:.3} USD", (total_monedas * VALOR_MERCURY) as f64 / 1000.0));
     }
 
-    let _ = log_event(&format!("Minado completado: {} monedas minadas, {} errores, detenido: {}", monedas_minadas_exitosas, monedas_con_error, detenido_por_usuario));
+    let _ = log_event(&format!("Minado completado: {} monedas Mercury minadas, {} errores, ganancia ${:.3} USD, detenido: {}", monedas_minadas_exitosas, monedas_con_error, ganancia_total as f64 / 1000.0, detenido_por_usuario));
 }
