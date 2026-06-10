@@ -15,7 +15,7 @@ mod models;
 mod clave_embebida;
 
 use crate::config::{verificar_configuracion_postgres, inicializar_clave_sistema};
-use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas, obtener_monedas_disponibles};
+use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas_completas, obtener_monedas_disponibles};
 use crate::logs::log_event;
 use crate::utils::{limpiar_pantalla, print_verde, print_rojo, print_amarillo, print_azul, print_blanco, print_cyan, input_filtrado};
 use crate::crear_monedas::{generar_monedas, verificar_integridad, TOTAL_MONEDAS, VALOR_MERCURY};
@@ -74,20 +74,20 @@ async fn mostrar_saldo() -> i64 {
     }
 }
 
-async fn mostrar_estado() -> (i64, i64, i64) {
+async fn mostrar_estado() -> (i64, i64, i64, i64) {
     let total = match obtener_total_monedas().await {
         Ok(t) => t,
         Err(e) => {
             print_rojo(&format!("Error al obtener total monedas: {}", e));
-            return (0, 0, 0);
+            return (0, 0, 0, 0);
         }
     };
 
-    let minadas = match obtener_monedas_minadas().await {
+    let minadas_completas = match obtener_monedas_minadas_completas().await {
         Ok(m) => m,
         Err(e) => {
-            print_rojo(&format!("Error al obtener monedas minadas: {}", e));
-            return (0, 0, 0);
+            print_rojo(&format!("Error al obtener monedas minadas completas: {}", e));
+            return (0, 0, 0, 0);
         }
     };
 
@@ -95,25 +95,31 @@ async fn mostrar_estado() -> (i64, i64, i64) {
         Ok(d) => d,
         Err(e) => {
             print_rojo(&format!("Error al obtener monedas disponibles: {}", e));
-            return (0, 0, 0);
+            return (0, 0, 0, 0);
         }
     };
 
+    let minadas_parciales = total - minadas_completas - disponibles;
     let saldo = mostrar_saldo().await;
 
     print_amarillo("\n=== ESTADO DEL SISTEMA MERCURY ===");
 
     if total > 0 {
-        let porcentaje = (minadas as f64 / total as f64) * 100.0;
+        let porcentaje_completo = (minadas_completas as f64 / total as f64) * 100.0;
+        let porcentaje_parcial = (minadas_parciales as f64 / total as f64) * 100.0;
+        let porcentaje_disponible = (disponibles as f64 / total as f64) * 100.0;
+        
         print_blanco(&format!("Total monedas Mercury: {}", total));
         print_blanco(&format!("Valor total del sistema: ${:.3} USD", (total * VALOR_MERCURY) as f64 / 1000.0));
-        print_blanco(&format!("Monedas minadas: {} ({:.2}%)", minadas, porcentaje));
-        print_blanco(&format!("Valor minado: ${:.3} USD", (minadas * VALOR_MERCURY) as f64 / 1000.0));
-        print_blanco(&format!("Monedas disponibles: {}", disponibles));
+        print_verde(&format!("Monedas minadas completas: {} ({:.2}%)", minadas_completas, porcentaje_completo));
+        print_azul(&format!("Valor minado completo: ${:.3} USD", (minadas_completas * VALOR_MERCURY) as f64 / 1000.0));
+        print_amarillo(&format!("Monedas minadas parciales: {} ({:.2}%)", minadas_parciales, porcentaje_parcial));
+        print_blanco(&format!("Monedas disponibles: {} ({:.2}%)", disponibles, porcentaje_disponible));
         print_blanco(&format!("Valor disponible: ${:.3} USD", (disponibles * VALOR_MERCURY) as f64 / 1000.0));
-        print_blanco(&format!("Saldo: ${:.3} USD", saldo as f64 / 1000.0));
+        print_verde(&format!("Saldo acumulado: ${:.3} USD", saldo as f64 / 1000.0));
         print_blanco(&format!("Valor por Mercury: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
         print_blanco("Cifrado: AES-256-GCM (individual por moneda)");
+        print_blanco("Minado: Fraccionado con porcentaje exacto");
         print_blanco("Base de datos: PostgreSQL");
         print_blanco("Clave: Embebida en el codigo fuente");
     } else {
@@ -121,13 +127,13 @@ async fn mostrar_estado() -> (i64, i64, i64) {
         print_amarillo(&format!("Ejecuta 'generar' para crear {} monedas Mercury", TOTAL_MONEDAS));
     }
 
-    (total, minadas, disponibles)
+    (total, minadas_completas, minadas_parciales, disponibles)
 }
 
 fn mostrar_ayuda() {
     print_amarillo("\nCOMANDOS MERCURY:");
-    print_blanco("  generar   - Generar 100,000 monedas Mercury (valor $67.998 c/u)");
-    print_blanco("  minar     - Minar monedas Mercury automaticamente");
+    print_blanco("  generar   - Generar 1,000,000 monedas Mercury (valor $67.998 c/u)");
+    print_blanco("  minar     - Minar monedas Mercury (soporta fracciones)");
     print_blanco("  estado    - Ver estado del sistema Mercury");
     print_blanco("  saldo     - Ver saldo actual en USD");
     print_blanco("  reiniciar - Reiniciar sistema (elimina TODOS los datos)");
@@ -135,6 +141,7 @@ fn mostrar_ayuda() {
     print_blanco("  help      - Esta ayuda");
     print_blanco("  salir     - Salir del programa");
     print_azul("\n  Moneda: Mercury - Valor: $67.998 USD cada una");
+    print_azul("  Minado fraccionado: Puedes obtener porcentajes exactos");
     print_azul("  Cifrado: AES-256-GCM individual por moneda");
     print_azul("  Base de datos: PostgreSQL");
     print_azul("  Clave: Embebida permanentemente en el sistema");
@@ -198,10 +205,10 @@ async fn comando_minar() {
         }
     };
 
-    let minadas = match obtener_monedas_minadas().await {
+    let minadas_completas = match obtener_monedas_minadas_completas().await {
         Ok(m) => m,
         Err(e) => {
-            print_rojo(&format!("Error al obtener monedas minadas: {}", e));
+            print_rojo(&format!("Error al obtener monedas minadas completas: {}", e));
             input_filtrado("\nPresiona ENTER para continuar...");
             return;
         }
@@ -223,23 +230,27 @@ async fn comando_minar() {
         return;
     }
 
-    if disponibles == 0 {
-        print_verde("\nTodas las monedas Mercury ya han sido minadas");
-        let valor_total = minadas * VALOR_MERCURY;
+    if disponibles == 0 && minadas_completas == total {
+        print_verde("\nTodas las monedas Mercury ya han sido minadas completamente");
+        let valor_total = minadas_completas * VALOR_MERCURY;
         print_blanco(&format!("Valor total minado: ${:.3} USD", valor_total as f64 / 1000.0));
         input_filtrado("\nPresiona ENTER para continuar...");
         return;
     }
 
     let saldo = mostrar_saldo().await;
+    let minadas_parciales = total - minadas_completas - disponibles;
+    
     print_amarillo("\n=== MINADO DE MERCURY ===");
     print_azul(&format!(
-        "Total: {} monedas | Minadas: {} | Disponibles: {} | Saldo: ${:.3} USD",
-        total, minadas, disponibles, saldo as f64 / 1000.0
+        "Total: {} monedas | Completas: {} | Parciales: {} | Disponibles: {} | Saldo: ${:.3} USD",
+        total, minadas_completas, minadas_parciales, disponibles, saldo as f64 / 1000.0
     ));
     print_azul(&format!("Valor por Mercury: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_azul("Cifrado: AES-256-GCM individual por moneda");
-    print_cyan("\nPresiona 'N' en cualquier momento para detener el minado");
+    print_cyan("\nEl minado es fraccionado: puedes obtener porcentajes exactos");
+    print_cyan("Presiona 'N' en cualquier momento para detener el minado");
+    print_cyan("El progreso se guarda automaticamente");
     println!();
 
     minar_automatico().await;
@@ -303,9 +314,15 @@ async fn main() {
                 limpiar_pantalla();
                 print_amarillo("\n=== SALDO ACTUAL EN USD ===");
                 let saldo = mostrar_saldo().await;
-                let monedas_minadas = saldo / VALOR_MERCURY;
+                let monedas_minadas_completas = saldo / VALOR_MERCURY;
+                let resto = saldo % VALOR_MERCURY;
+                let porcentaje_extra = (resto as f64 / VALOR_MERCURY as f64) * 100.0;
+                
                 print_verde(&format!("${:.3} USD", saldo as f64 / 1000.0));
-                print_blanco(&format!("Equivalente a {} monedas Mercury minadas", monedas_minadas));
+                print_blanco(&format!("Equivalente a {} monedas completas", monedas_minadas_completas));
+                if resto > 0 {
+                    print_blanco(&format!("Mas un {:.2}% de otra moneda", porcentaje_extra));
+                }
                 input_filtrado("\nPresiona ENTER para continuar...");
             },
             "estado" => {

@@ -1,1 +1,2 @@
 PGPASSWORD=1234 psql -h localhost -p 5432 -U postgres -d monedas_db
+

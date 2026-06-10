@@ -11,7 +11,7 @@ use crate::db::{
 };
 use std::time::Instant;
 
-pub const TOTAL_MONEDAS: i64 = 100000;
+pub const TOTAL_MONEDAS: i64 = 10000;
 pub const LONGITUD_ID: usize = 1024;
 pub const VALOR_MERCURY: i64 = 67998;
 
@@ -132,7 +132,7 @@ pub async fn generar_monedas(lote: i64) -> bool {
 
         for i in 0..lote_actual as usize {
             let _ = insertar_id_original(&ids_originales_lote[i]).await;
-            let _ = insertar_moneda_cifrada(&ids_cifrados_lote[i], false).await;
+            let _ = insertar_moneda_cifrada(&ids_cifrados_lote[i], 0.0).await;
         }
 
         monedas_generadas += lote_actual;
@@ -153,7 +153,7 @@ pub async fn generar_monedas(lote: i64) -> bool {
     print_verde("GENERACION DE MERCURY COMPLETADA EXITOSAMENTE");
     print_verde("=".repeat(60).as_str());
     print_blanco(&format!("Total de monedas Mercury generadas: {}", TOTAL_MONEDAS));
-    print_blanco(&format!("Valor total en el sistema: ${:.3} USD", (TOTAL_MONEDAS * VALOR_MERCURY) as f64 / 1000.0));
+    print_blanco(&format!("Valor total del sistema: ${:.3} USD", (TOTAL_MONEDAS * VALOR_MERCURY) as f64 / 1000.0));
     print_blanco(&format!("Valor por moneda: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_blanco(&format!("Longitud de IDs: {} caracteres", LONGITUD_ID));
     print_blanco("Cifrado: AES-256-GCM (individual por moneda)");
@@ -171,8 +171,9 @@ pub async fn verificar_integridad() -> bool {
     print_amarillo("Verificando integridad del sistema Mercury...");
     print_blanco(&format!("  IDs originales: {}", estadisticas.total_ids_originales));
     print_blanco(&format!("  Monedas cifradas: {}", estadisticas.total_monedas_cifradas));
-    print_blanco(&format!("  Monedas minadas: {}", estadisticas.monedas_minadas));
-    print_blanco(&format!("  Monedas disponibles: {}", estadisticas.monedas_disponibles));
+    print_blanco(&format!("  Monedas minadas completas: {}", estadisticas.monedas_minadas_completas));
+    print_blanco(&format!("  Monedas minadas parciales: {}", estadisticas.monedas_minadas_parciales));
+    print_blanco(&format!("  Monedas no minadas: {}", estadisticas.monedas_no_minadas));
     print_blanco(&format!("  Saldo actual: ${:.3} USD", estadisticas.saldo_actual as f64 / 1000.0));
 
     if estadisticas.total_ids_originales != TOTAL_MONEDAS {
@@ -185,8 +186,9 @@ pub async fn verificar_integridad() -> bool {
         return false;
     }
 
-    if estadisticas.monedas_disponibles + estadisticas.monedas_minadas != TOTAL_MONEDAS {
-        print_rojo("ERROR: Suma de disponibles + minadas no coincide con total");
+    let suma_estados = estadisticas.monedas_minadas_completas + estadisticas.monedas_minadas_parciales + estadisticas.monedas_no_minadas;
+    if suma_estados != TOTAL_MONEDAS {
+        print_rojo("ERROR: Suma de monedas completa + parcial + no minadas no coincide con total");
         return false;
     }
 

@@ -82,7 +82,7 @@ pub async fn init_database() -> bool {
         "CREATE TABLE IF NOT EXISTS monedas_cifradas (
             id SERIAL PRIMARY KEY,
             id_cifrado TEXT NOT NULL,
-            estado BOOLEAN DEFAULT FALSE,
+            porcentaje_minado DECIMAL(10,4) DEFAULT 0.0000,
             fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             fecha_minado TIMESTAMP NULL
         )"
@@ -108,7 +108,7 @@ pub async fn init_database() -> bool {
     }
 
     let _ = sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_monedas_estado ON monedas_cifradas(estado)"
+        "CREATE INDEX IF NOT EXISTS idx_monedas_porcentaje ON monedas_cifradas(porcentaje_minado)"
     ).execute(pool.get_pool()).await;
 
     let _ = sqlx::query(
@@ -154,13 +154,13 @@ pub async fn insertar_id_original(id_original: &str) -> Option<i32> {
     row.map(|r| r.get(0))
 }
 
-pub async fn insertar_moneda_cifrada(id_cifrado: &str, estado: bool) -> Option<i32> {
+pub async fn insertar_moneda_cifrada(id_cifrado: &str, porcentaje_inicial: f64) -> Option<i32> {
     let pool = get_pool();
     let row = sqlx::query(
-        "INSERT INTO monedas_cifradas (id_cifrado, estado, fecha_creacion) VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id"
+        "INSERT INTO monedas_cifradas (id_cifrado, porcentaje_minado, fecha_creacion) VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id"
     )
     .bind(id_cifrado)
-    .bind(estado)
+    .bind(porcentaje_inicial)
     .fetch_optional(pool.get_pool())
     .await
     .unwrap_or(None);
@@ -184,7 +184,7 @@ pub async fn verificar_id_original_existe(id_original: &str) -> bool {
 pub async fn obtener_siguiente_moneda_no_minada(limite: i64) -> Vec<MonedaPendiente> {
     let pool = get_pool();
     let rows = sqlx::query_as::<_, MonedaPendiente>(
-        "SELECT id, id_cifrado FROM monedas_cifradas WHERE estado = FALSE ORDER BY id LIMIT $1"
+        "SELECT id, id_cifrado, porcentaje_minado FROM monedas_cifradas WHERE porcentaje_minado < 100 ORDER BY id LIMIT $1"
     )
     .bind(limite)
     .fetch_all(pool.get_pool())
@@ -194,21 +194,54 @@ pub async fn obtener_siguiente_moneda_no_minada(limite: i64) -> Vec<MonedaPendie
     rows
 }
 
-pub async fn actualizar_estado_moneda(moneda_id: i32, estado: bool) -> bool {
+pub async fn obtener_porcentaje_moneda(moneda_id: i32) -> Option<f64> {
     let pool = get_pool();
-    let result = sqlx::query(
-        "UPDATE monedas_cifradas SET estado = $1, fecha_minado = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE fecha_minado END WHERE id = $3"
+    let row: Option<(f64,)> = sqlx::query_as(
+        "SELECT porcentaje_minado FROM monedas_cifradas WHERE id = $1"
     )
-    .bind(estado)
-    .bind(estado)
     .bind(moneda_id)
-    .execute(pool.get_pool())
-    .await;
+    .fetch_optional(pool.get_pool())
+    .await
+    .unwrap_or(None);
+
+    row.map(|r| r.0)
+}
+
+pub async fn actualizar_porcentaje_moneda(moneda_id: i32, nuevo_porcentaje: f64) -> bool {
+    let pool = get_pool();
+    
+    let porcentaje_redondeado = (nuevo_porcentaje * 10000.0).round() / 10000.0;
+    let es_completa = (porcentaje_redondeado - 100.0).abs() < 0.0001;
+    
+    let result = if es_completa {
+        sqlx::query(
+            "UPDATE monedas_cifradas SET porcentaje_minado = $1, fecha_minado = CURRENT_TIMESTAMP WHERE id = $2"
+        )
+        .bind(porcentaje_redondeado)
+        .bind(moneda_id)
+        .execute(pool.get_pool())
+        .await
+    } else {
+        sqlx::query(
+            "UPDATE monedas_cifradas SET porcentaje_minado = $1 WHERE id = $2"
+        )
+        .bind(porcentaje_redondeado)
+        .bind(moneda_id)
+        .execute(pool.get_pool())
+        .await
+    };
 
     match result {
-        Ok(res) => res.rows_affected() > 0,
+        Ok(res) => {
+            if res.rows_affected() > 0 {
+                let _ = log_event(&format!("Moneda {} actualizada a {:.4}%", moneda_id, porcentaje_redondeado));
+                true
+            } else {
+                false
+            }
+        },
         Err(e) => {
-            log_error(&format!("Error al actualizar estado de moneda Mercury: {}", e));
+            log_error(&format!("Error al actualizar porcentaje de moneda Mercury: {}", e));
             false
         }
     }
@@ -223,7 +256,7 @@ pub async fn obtener_saldo() -> Result<i64, sqlx::Error> {
     Ok(row.map(|r| r.0).unwrap_or(0))
 }
 
-pub async fn actualizar_saldo(incremento: i64, id_moneda: Option<i32>, id_original_preview: Option<&str>) -> Result<i64, sqlx::Error> {
+pub async fn actualizar_saldo(incremento: i64, id_moneda: Option<i32>, porcentaje_previo: Option<f64>, porcentaje_nuevo: Option<f64>, id_original_preview: Option<&str>) -> Result<i64, sqlx::Error> {
     let pool = get_pool();
 
     let row: Option<(i64,)> = sqlx::query_as(
@@ -237,16 +270,29 @@ pub async fn actualizar_saldo(incremento: i64, id_moneda: Option<i32>, id_origin
 
     if let Some(id_moneda_val) = id_moneda {
         let valor_usd = incremento as f64 / 1000.0;
+        
         let mut registro = serde_json::json!({
             "fecha": Utc::now().to_rfc3339(),
             "id_moneda": id_moneda_val,
             "incremento": incremento,
-            "valor_usd": format!("${:.3}", valor_usd),
+            "incremento_usd": format!("${:.3}", valor_usd),
             "saldo_nuevo": nuevo_saldo,
             "saldo_nuevo_usd": format!("${:.3}", nuevo_saldo as f64 / 1000.0),
-            "tipo": "minado_exitoso",
+            "tipo": "minado_parcial",
             "moneda": "Mercury"
         });
+
+        if let Some(previo) = porcentaje_previo {
+            registro["porcentaje_minado_previo"] = serde_json::json!(previo);
+        }
+        
+        if let Some(nuevo) = porcentaje_nuevo {
+            registro["porcentaje_minado_nuevo"] = serde_json::json!(nuevo);
+            
+            if (nuevo - 100.0).abs() < 0.0001 {
+                registro["tipo"] = serde_json::json!("minado_completo");
+            }
+        }
 
         if let Some(preview) = id_original_preview {
             registro["id_original_preview"] = serde_json::json!(preview);
@@ -272,9 +318,18 @@ pub async fn obtener_total_monedas() -> Result<i64, sqlx::Error> {
     Ok(row.map(|r| r.0).unwrap_or(0))
 }
 
-pub async fn obtener_monedas_minadas() -> Result<i64, sqlx::Error> {
+pub async fn obtener_monedas_minadas_completas() -> Result<i64, sqlx::Error> {
     let pool = get_pool();
-    let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas WHERE estado = TRUE")
+    let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas WHERE porcentaje_minado >= 99.9999")
+        .fetch_optional(pool.get_pool())
+        .await?;
+
+    Ok(row.map(|r| r.0).unwrap_or(0))
+}
+
+pub async fn obtener_monedas_minadas_parciales() -> Result<i64, sqlx::Error> {
+    let pool = get_pool();
+    let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas WHERE porcentaje_minado > 0 AND porcentaje_minado < 99.9999")
         .fetch_optional(pool.get_pool())
         .await?;
 
@@ -283,7 +338,7 @@ pub async fn obtener_monedas_minadas() -> Result<i64, sqlx::Error> {
 
 pub async fn obtener_monedas_disponibles() -> Result<i64, sqlx::Error> {
     let pool = get_pool();
-    let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas WHERE estado = FALSE")
+    let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas WHERE porcentaje_minado < 0.0001")
         .fetch_optional(pool.get_pool())
         .await?;
 
@@ -303,12 +358,17 @@ pub async fn obtener_estadisticas_completas() -> Estadisticas {
         .await
         .unwrap_or(0);
 
-    let monedas_minadas: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monedas_cifradas WHERE estado = TRUE")
+    let monedas_minadas_completas: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monedas_cifradas WHERE porcentaje_minado >= 99.9999")
         .fetch_one(pool.get_pool())
         .await
         .unwrap_or(0);
 
-    let monedas_disponibles: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monedas_cifradas WHERE estado = FALSE")
+    let monedas_minadas_parciales: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monedas_cifradas WHERE porcentaje_minado > 0 AND porcentaje_minado < 99.9999")
+        .fetch_one(pool.get_pool())
+        .await
+        .unwrap_or(0);
+
+    let monedas_no_minadas: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monedas_cifradas WHERE porcentaje_minado < 0.0001")
         .fetch_one(pool.get_pool())
         .await
         .unwrap_or(0);
@@ -318,8 +378,9 @@ pub async fn obtener_estadisticas_completas() -> Estadisticas {
     Estadisticas {
         total_ids_originales: total_ids,
         total_monedas_cifradas: total_monedas,
-        monedas_minadas,
-        monedas_disponibles,
+        monedas_minadas_completas,
+        monedas_minadas_parciales,
+        monedas_no_minadas,
         saldo_actual,
         valor_por_moneda: VALOR_MERCURY,
     }
