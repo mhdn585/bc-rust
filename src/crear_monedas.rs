@@ -11,7 +11,7 @@ use crate::db::{
 };
 use std::time::Instant;
 
-pub const TOTAL_MONEDAS: i64 = 10000;
+pub const TOTAL_MONEDAS: i64 = 100_000;
 pub const LONGITUD_ID: usize = 1024;
 pub const VALOR_MERCURY: i64 = 67998;
 
