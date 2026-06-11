@@ -82,7 +82,7 @@ pub async fn init_database() -> bool {
         "CREATE TABLE IF NOT EXISTS monedas_cifradas (
             id SERIAL PRIMARY KEY,
             id_cifrado TEXT NOT NULL,
-            porcentaje_minado DECIMAL(10,4) DEFAULT 0.0000,
+            porcentaje_minado DOUBLE PRECISION DEFAULT 0.0,
             fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             fecha_minado TIMESTAMP NULL
         )"
