@@ -13,7 +13,7 @@ use crate::db::{
     obtener_saldo, obtener_total_monedas, obtener_monedas_minadas_completas, obtener_monedas_disponibles,
     verificar_id_original_existe, obtener_porcentaje_moneda
 };
-use crate::crear_monedas::{VALOR_MERCURY, LONGITUD_ID};
+use crate::crear_monedas::{VALOR_MERCURY};
 
 const VELOCIDAD_DESCIFRADO: f64 = 0.05;
 
@@ -65,7 +65,7 @@ fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, porcen
     let caracteres_a_descifrar = ((100.0 - porcentaje_inicial) / 100.0) * original_len as f64;
     let inicio_desde = (porcentaje_inicial / 100.0) * original_len as f64;
     let inicio_idx = inicio_desde.round() as usize;
-    let total_a_descifrar = caracteres_a_descifrar.round() as usize;
+    let _total_a_descifrar = caracteres_a_descifrar.round() as usize;
 
     println!();
     print_amarillo("+------------------------------------------------------------+");
@@ -98,7 +98,6 @@ fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, porcen
 
     let mut texto_descifrado = id_original[0..inicio_idx].to_string();
     let mut nuevo_porcentaje = porcentaje_inicial;
-    let mut caracteres_procesados = inicio_idx;
 
     for i in inicio_idx..original_len {
         if stop_flag.load(Ordering::SeqCst) || tecla_n_presionada() {
@@ -109,7 +108,7 @@ fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, porcen
         }
 
         texto_descifrado.push(id_original.chars().nth(i).unwrap());
-        caracteres_procesados = i + 1;
+        let caracteres_procesados = i + 1;
         nuevo_porcentaje = (caracteres_procesados as f64 / original_len as f64) * 100.0;
 
         let proporcion_completada = caracteres_procesados as f64 / original_len as f64;
@@ -165,7 +164,7 @@ fn mostrar_animacion_verificacion(stop_flag: &Arc<AtomicBool>) -> bool {
 
 fn mostrar_animacion_minado(porcentaje_inicial: f64, stop_flag: &Arc<AtomicBool>) -> Option<f64> {
     let inicio = (porcentaje_inicial / 5.0) as usize;
-    let inicio_porcentaje = porcentaje_inicial;
+    let _inicio_porcentaje = porcentaje_inicial;
     
     for i in (inicio + 1)..=20 {
         if stop_flag.load(Ordering::SeqCst) || tecla_n_presionada() {
@@ -413,7 +412,7 @@ pub async fn minar_automatico() {
         return;
     }
 
-    let mut disponibles_restantes = disponibles;
+    let disponibles_restantes = disponibles;
     if disponibles_restantes == 0 {
         print_verde("Todas las monedas Mercury ya han sido minadas completamente");
         let valor_total = minadas_completas_antes * VALOR_MERCURY;

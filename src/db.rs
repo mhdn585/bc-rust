@@ -327,6 +327,7 @@ pub async fn obtener_monedas_minadas_completas() -> Result<i64, sqlx::Error> {
     Ok(row.map(|r| r.0).unwrap_or(0))
 }
 
+#[allow(dead_code)]
 pub async fn obtener_monedas_minadas_parciales() -> Result<i64, sqlx::Error> {
     let pool = get_pool();
     let row: Option<(i64,)> = sqlx::query_as("SELECT COUNT(*) FROM monedas_cifradas WHERE porcentaje_minado > 0 AND porcentaje_minado < 99.9999")

@@ -19,6 +19,7 @@ pub struct Estadisticas {
     pub valor_por_moneda: i64,
 }
 
+#[allow(dead_code)]
 impl Estadisticas {
     pub fn valor_total_sistema_usd(&self) -> f64 {
         (self.total_monedas_cifradas * self.valor_por_moneda) as f64 / 1000.0
@@ -50,6 +51,7 @@ impl Estadisticas {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HistorialTransaccion {
     pub fecha: String,
@@ -65,6 +67,7 @@ pub struct HistorialTransaccion {
     pub id_original_preview: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SaldoResponse {
     pub saldo: i64,
