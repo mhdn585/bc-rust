@@ -65,7 +65,7 @@ fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, porcen
     let caracteres_a_descifrar = ((100.0 - porcentaje_inicial) / 100.0) * original_len as f64;
     let inicio_desde = (porcentaje_inicial / 100.0) * original_len as f64;
     let inicio_idx = inicio_desde.round() as usize;
-    let _total_a_descifrar = caracteres_a_descifrar.round() as usize;
+    let total_a_descifrar = caracteres_a_descifrar.round() as usize;
 
     println!();
     print_amarillo("+------------------------------------------------------------+");
@@ -102,9 +102,12 @@ fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, porcen
     for i in inicio_idx..original_len {
         if stop_flag.load(Ordering::SeqCst) || tecla_n_presionada() {
             stop_flag.store(true, Ordering::SeqCst);
+            texto_descifrado.push(id_original.chars().nth(i).unwrap());
+            let caracteres_procesados = i + 1;
+            nuevo_porcentaje = (caracteres_procesados as f64 / original_len as f64) * 100.0;
             println!();
-            print_amarillo(&format!("\n[MINADO DETENIDO] Progreso guardado: {:.4}%", nuevo_porcentaje));
-            return None;
+            print_amarillo(&format!("\n[DESCIFRADO INTERRUMPIDO] Progreso alcanzado: {:.4}%", nuevo_porcentaje));
+            return Some((texto_descifrado, nuevo_porcentaje));
         }
 
         texto_descifrado.push(id_original.chars().nth(i).unwrap());
@@ -164,7 +167,7 @@ fn mostrar_animacion_verificacion(stop_flag: &Arc<AtomicBool>) -> bool {
 
 fn mostrar_animacion_minado(porcentaje_inicial: f64, stop_flag: &Arc<AtomicBool>) -> Option<f64> {
     let inicio = (porcentaje_inicial / 5.0) as usize;
-    let _inicio_porcentaje = porcentaje_inicial;
+    let inicio_porcentaje = porcentaje_inicial;
     
     for i in (inicio + 1)..=20 {
         if stop_flag.load(Ordering::SeqCst) || tecla_n_presionada() {
@@ -173,7 +176,10 @@ fn mostrar_animacion_minado(porcentaje_inicial: f64, stop_flag: &Arc<AtomicBool>
             if porcentaje_actual > 100.0 {
                 return Some(100.0);
             }
-            return Some(porcentaje_actual);
+            if porcentaje_actual > inicio_porcentaje {
+                return Some(porcentaje_actual);
+            }
+            return Some(inicio_porcentaje);
         }
         let barra = "#".repeat(i) + &".".repeat(20 - i);
         let porcentaje = i * 5;
@@ -297,20 +303,20 @@ async fn minar_moneda_individual(
         print_verde("  [OK] ID VALIDO - La moneda Mercury es autentica");
         println!();
         
-        let porcentaje_minado_resultado = mostrar_animacion_minado(porcentaje_descifrado, stop_flag);
+        let porcentaje_minado_resultado = mostrar_animacion_minado(porcentaje_actual_db, stop_flag);
         
         if let Some(porcentaje_final) = porcentaje_minado_resultado {
             if stop_flag.load(Ordering::SeqCst) && porcentaje_final < 99.99 {
-                if porcentaje_final > porcentaje_descifrado + 0.01 {
+                if porcentaje_final > porcentaje_actual_db + 0.01 {
                     let _ = actualizar_porcentaje_moneda(moneda_id, porcentaje_final).await;
-                    let incremento = calcular_incremento_porcentaje(porcentaje_descifrado, porcentaje_final);
+                    let incremento = calcular_incremento_porcentaje(porcentaje_actual_db, porcentaje_final);
                     if incremento > 0 {
                         let preview = if id_descifrado.len() > 100 {
                             Some(&id_descifrado[0..100])
                         } else {
                             Some(id_descifrado.as_str())
                         };
-                        let _ = actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_descifrado), Some(porcentaje_final), preview).await;
+                        let _ = actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_actual_db), Some(porcentaje_final), preview).await;
                         print_amarillo(&format!("\n  [GUARDADO] Progreso guardado: {:.4}% (${:.3} USD)", 
                             porcentaje_final, incremento as f64 / 1000.0));
                     }
@@ -321,7 +327,7 @@ async fn minar_moneda_individual(
             let porcentaje_a_guardar = if porcentaje_final >= 99.99 { 100.0 } else { porcentaje_final };
             
             if actualizar_porcentaje_moneda(moneda_id, porcentaje_a_guardar).await {
-                let incremento = calcular_incremento_porcentaje(porcentaje_descifrado, porcentaje_a_guardar);
+                let incremento = calcular_incremento_porcentaje(porcentaje_actual_db, porcentaje_a_guardar);
                 
                 let preview = if id_descifrado.len() > 100 {
                     Some(&id_descifrado[0..100])
@@ -329,7 +335,7 @@ async fn minar_moneda_individual(
                     Some(id_descifrado.as_str())
                 };
                 
-                let saldo_nuevo = match actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_descifrado), Some(porcentaje_a_guardar), preview).await {
+                let saldo_nuevo = match actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_actual_db), Some(porcentaje_a_guardar), preview).await {
                     Ok(s) => s,
                     Err(e) => {
                         log_error(&format!("Error al actualizar saldo: {}", e));
