@@ -8,6 +8,7 @@ crypto_key.key
 sistema.log
 *.db
 .env
+clave-db.txt
 
 # Archivos del sistema operativo
 .DS_Store
@@ -16,7 +17,3 @@ Thumbs.db
 cosas/
 
 comp.txt
-
-conectarme.txt
-
-
