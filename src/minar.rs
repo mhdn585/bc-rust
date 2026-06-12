@@ -6,16 +6,25 @@ use base64::Engine;
 use crossterm::{event::{self, Event, KeyCode}, terminal};
 use crate::logs::{log_error, log_event};
 use crate::utils::{print_verde, print_rojo, print_amarillo, print_azul, print_blanco, print_cyan};
-use crate::config::obtener_clave_crypto;
+use crate::config::{obtener_clave_crypto, obtener_tiempo_minado};
 use crate::crypto_aes::descifrar_datos_aes;
 use crate::db::{
     obtener_siguiente_moneda_no_minada, actualizar_porcentaje_moneda, actualizar_saldo,
     obtener_saldo, obtener_total_monedas, obtener_monedas_minadas_completas, obtener_monedas_disponibles,
     verificar_id_original_existe, obtener_porcentaje_moneda
 };
-use crate::crear_monedas::{VALOR_MERCURY};
+use crate::crear_monedas::{VALOR_MERCURY, LONGITUD_ID};
 
-const VELOCIDAD_DESCIFRADO: f64 = 0.05;
+fn obtener_velocidad_descifrado() -> f64 {
+    let tiempo_total_segundos = obtener_tiempo_minado() as f64;
+    let pausa_por_caracter = tiempo_total_segundos / LONGITUD_ID as f64;
+    let velocidad = pausa_por_caracter.max(0.001).min(10.0);
+    
+    let _ = log_event(&format!("Velocidad de descifrado configurada: {:.4}s por caracter ({}s por moneda completa)", 
+        velocidad, tiempo_total_segundos));
+    
+    velocidad
+}
 
 fn tecla_n_presionada() -> bool {
     if event::poll(Duration::from_millis(0)).unwrap_or(false) {
@@ -59,6 +68,7 @@ fn descifrar_id_moneda(id_cifrado_b64: &str, clave_aes: &[u8]) -> Option<String>
 }
 
 fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, porcentaje_inicial: f64, stop_flag: &Arc<AtomicBool>) -> Option<(String, f64)> {
+    let velocidad = obtener_velocidad_descifrado();
     let cifrado_len = id_cifrado.len();
     let original_len = id_original.len();
     
@@ -131,7 +141,7 @@ fn mostrar_transformacion_descifrado(id_cifrado: &str, id_original: &str, porcen
         }
         io::stdout().flush().unwrap();
 
-        std::thread::sleep(Duration::from_secs_f64(VELOCIDAD_DESCIFRADO));
+        std::thread::sleep(Duration::from_secs_f64(velocidad));
     }
 
     println!();
@@ -427,6 +437,7 @@ pub async fn minar_automatico() {
     }
 
     let saldo_actual = obtener_saldo().await.unwrap_or(0);
+    let tiempo_configurado = obtener_tiempo_minado();
 
     print_azul("+------------------------------------------------------------+");
     print_azul("|              MINADO AUTOMATICO - MERCURY                  |");
@@ -437,6 +448,7 @@ pub async fn minar_automatico() {
     print_blanco(&format!("Monedas disponibles: {}", disponibles_restantes));
     print_blanco(&format!("Valor por Mercury: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_blanco(&format!("Saldo actual: ${:.3} USD", saldo_actual as f64 / 1000.0));
+    print_azul(&format!("Tiempo por moneda completa: {} segundos", tiempo_configurado));
     print_azul("Cifrado: AES-256-GCM");
     print_cyan("\nPresiona 'N' en cualquier momento para detener el minado");
     print_cyan("El progreso se guarda automaticamente al interrumpir");
