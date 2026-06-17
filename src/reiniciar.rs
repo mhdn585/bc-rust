@@ -41,7 +41,7 @@ pub async fn reiniciar_sistema_postgres(_crear_backup: bool, limpiar_logs: bool,
     if exito {
         let _ = log_event("REINICIO COMPLETADO EXITOSAMENTE");
         print_verde("Sistema reiniciado correctamente");
-        print_azul("Ejecuta 'generar' para crear nuevas monedas");
+        print_azul("Ejecuta 'generar' para crear nuevas monedas Mercury");
         true
     } else {
         log_error("Error critico durante reinicio");

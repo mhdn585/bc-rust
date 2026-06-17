@@ -11,12 +11,11 @@ use crate::db::{
 };
 use std::time::Instant;
 
-pub const TOTAL_MONEDAS: i64 = 1000;
+pub const TOTAL_MONEDAS: i64 = 100_000;
 pub const LONGITUD_ID: usize = 1024;
-
+pub const VALOR_MERCURY: i64 = 67998;
 
 const CARACTERES_PERMITIDOS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
-
 
 fn generar_id_complejo() -> String {
     let mut rng = rand::thread_rng();
@@ -53,13 +52,13 @@ pub async fn generar_monedas(lote: i64) -> bool {
     let total_existentes = obtener_total_monedas().await.unwrap_or(0);
 
     if total_existentes >= TOTAL_MONEDAS {
-        print_verde(&format!("Ya existen {} monedas en el sistema", total_existentes));
+        print_verde(&format!("Ya existen {} monedas Mercury en el sistema", total_existentes));
         return true;
     }
 
     if total_existentes > 0 {
-        print_amarillo(&format!("Se encontraron {} monedas existentes", total_existentes));
-        print_amarillo(&format!("Faltan generar {} monedas", TOTAL_MONEDAS - total_existentes));
+        print_amarillo(&format!("Se encontraron {} monedas Mercury existentes", total_existentes));
+        print_amarillo(&format!("Faltan generar {} monedas Mercury", TOTAL_MONEDAS - total_existentes));
         print!("Deseas continuar con la generacion? (s/n): ");
         let mut respuesta = String::new();
         std::io::stdin().read_line(&mut respuesta).unwrap();
@@ -76,7 +75,8 @@ pub async fn generar_monedas(lote: i64) -> bool {
     }
     let clave_aes = clave_aes.unwrap();
 
-    print_amarillo(&format!("Iniciando generacion de {} monedas", TOTAL_MONEDAS));
+    print_amarillo(&format!("Iniciando generacion de {} monedas Mercury", TOTAL_MONEDAS));
+    print_azul(&format!("Valor por moneda: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_azul(&format!("Longitud de IDs: {} caracteres", LONGITUD_ID));
     print_azul("Cifrado: AES-256-GCM individual por moneda");
     print_azul(&format!("Caracteres permitidos: {} tipos", CARACTERES_PERMITIDOS.len()));
@@ -99,7 +99,7 @@ pub async fn generar_monedas(lote: i64) -> bool {
         let lote_actual = std::cmp::min(lote, TOTAL_MONEDAS - monedas_generadas);
         let inicio_lote = Instant::now();
 
-        print_blanco(&format!("Generando lote {} - {} de {}", monedas_generadas + 1, monedas_generadas + lote_actual, TOTAL_MONEDAS));
+        print_blanco(&format!("Generando lote {} - {} de {} monedas Mercury", monedas_generadas + 1, monedas_generadas + lote_actual, TOTAL_MONEDAS));
 
         let mut ids_cifrados_lote = Vec::new();
         let mut ids_originales_lote = Vec::new();
@@ -132,7 +132,7 @@ pub async fn generar_monedas(lote: i64) -> bool {
 
         for i in 0..lote_actual as usize {
             let _ = insertar_id_original(&ids_originales_lote[i]).await;
-            let _ = insertar_moneda_cifrada(&ids_cifrados_lote[i], false).await;
+            let _ = insertar_moneda_cifrada(&ids_cifrados_lote[i], 0.0).await;
         }
 
         monedas_generadas += lote_actual;
@@ -150,28 +150,31 @@ pub async fn generar_monedas(lote: i64) -> bool {
 
     println!();
     print_verde("=".repeat(60).as_str());
-    print_verde("GENERACION COMPLETADA EXITOSAMENTE");
+    print_verde("GENERACION DE MERCURY COMPLETADA EXITOSAMENTE");
     print_verde("=".repeat(60).as_str());
-    print_blanco(&format!("Total de monedas generadas: {}", TOTAL_MONEDAS));
+    print_blanco(&format!("Total de monedas Mercury generadas: {}", TOTAL_MONEDAS));
+    print_blanco(&format!("Valor total del sistema: ${:.3} USD", (TOTAL_MONEDAS * VALOR_MERCURY) as f64 / 1000.0));
+    print_blanco(&format!("Valor por moneda: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
     print_blanco(&format!("Longitud de IDs: {} caracteres", LONGITUD_ID));
     print_blanco("Cifrado: AES-256-GCM (individual por moneda)");
     print_blanco(&format!("Tiempo total: {:.2} segundos ({:.1} minutos)", tiempo_total, minutos_total));
     print_blanco(&format!("Velocidad promedio: {:.0} monedas/seg", TOTAL_MONEDAS as f64 / tiempo_total));
     print_verde("=".repeat(60).as_str());
 
-    let _ = log_event(&format!("Generacion de {} monedas completada en {:.2}s", TOTAL_MONEDAS, tiempo_total));
+    let _ = log_event(&format!("Generacion de {} monedas Mercury completada en {:.2}s", TOTAL_MONEDAS, tiempo_total));
     true
 }
 
 pub async fn verificar_integridad() -> bool {
     let estadisticas = obtener_estadisticas_completas().await;
 
-    print_amarillo("Verificando integridad del sistema...");
+    print_amarillo("Verificando integridad del sistema Mercury...");
     print_blanco(&format!("  IDs originales: {}", estadisticas.total_ids_originales));
     print_blanco(&format!("  Monedas cifradas: {}", estadisticas.total_monedas_cifradas));
-    print_blanco(&format!("  Monedas minadas: {}", estadisticas.monedas_minadas));
-    print_blanco(&format!("  Monedas disponibles: {}", estadisticas.monedas_disponibles));
-    print_blanco(&format!("  Saldo actual: ${}", estadisticas.saldo_actual));
+    print_blanco(&format!("  Monedas minadas completas: {}", estadisticas.monedas_minadas_completas));
+    print_blanco(&format!("  Monedas minadas parciales: {}", estadisticas.monedas_minadas_parciales));
+    print_blanco(&format!("  Monedas no minadas: {}", estadisticas.monedas_no_minadas));
+    print_blanco(&format!("  Saldo actual: ${:.3} USD", estadisticas.saldo_actual as f64 / 1000.0));
 
     if estadisticas.total_ids_originales != TOTAL_MONEDAS {
         print_rojo(&format!("ERROR: IDs originales {} != {}", estadisticas.total_ids_originales, TOTAL_MONEDAS));
@@ -183,8 +186,9 @@ pub async fn verificar_integridad() -> bool {
         return false;
     }
 
-    if estadisticas.monedas_disponibles + estadisticas.monedas_minadas != TOTAL_MONEDAS {
-        print_rojo("ERROR: Suma de disponibles + minadas no coincide con total");
+    let suma_estados = estadisticas.monedas_minadas_completas + estadisticas.monedas_minadas_parciales + estadisticas.monedas_no_minadas;
+    if suma_estados != TOTAL_MONEDAS {
+        print_rojo("ERROR: Suma de monedas completa + parcial + no minadas no coincide con total");
         return false;
     }
 

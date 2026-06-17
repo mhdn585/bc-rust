@@ -1,12 +1,35 @@
 use std::env;
 use dotenv::dotenv;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
 use crate::logs::log_event;
 use crate::clave_embebida::obtener_clave_embebida;
 
+pub const TOTAL_MONEDAS: i64 = 100_000;
+
+pub const TIEMPO_MINADO_SEGUNDOS: u64 = 360;
+
+pub const MIN_TIEMPO_MINADO: u64 = 60;
+pub const MAX_TIEMPO_MINADO: u64 = 15_552_000;
+
 fn log_event_internal(mensaje: &str) {
     let _ = log_event(&format!("CONFIG: {}", mensaje));
+}
+
+pub fn validar_tiempo_minado(tiempo: u64) -> u64 {
+    if tiempo < MIN_TIEMPO_MINADO {
+        log_event_internal(&format!("Tiempo {}s es menor que el minimo {}s, usando minimo", tiempo, MIN_TIEMPO_MINADO));
+        return MIN_TIEMPO_MINADO;
+    }
+    if tiempo > MAX_TIEMPO_MINADO {
+        log_event_internal(&format!("Tiempo {}s es mayor que el maximo {}s, usando maximo", tiempo, MAX_TIEMPO_MINADO));
+        return MAX_TIEMPO_MINADO;
+    }
+    tiempo
+}
+
+pub fn obtener_tiempo_minado() -> u64 {
+    let tiempo_validado = validar_tiempo_minado(TIEMPO_MINADO_SEGUNDOS);
+    log_event_internal(&format!("Tiempo de minado configurado: {} segundos por moneda completa", tiempo_validado));
+    tiempo_validado
 }
 
 pub fn inicializar_clave_sistema() -> Result<(), String> {
