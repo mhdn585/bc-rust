@@ -14,11 +14,11 @@ mod reiniciar;
 mod models;
 mod clave_embebida;
 
-use crate::config::{verificar_configuracion_postgres, inicializar_clave_sistema};
+use crate::config::{verificar_configuracion_postgres, inicializar_clave_sistema, TOTAL_MONEDAS};
 use crate::db::{init_database, verificar_conexion, cerrar_pool, obtener_saldo, obtener_total_monedas, obtener_monedas_minadas_completas, obtener_monedas_disponibles};
 use crate::logs::log_event;
 use crate::utils::{limpiar_pantalla, print_verde, print_rojo, print_amarillo, print_azul, print_blanco, print_cyan, input_filtrado};
-use crate::crear_monedas::{generar_monedas, verificar_integridad, TOTAL_MONEDAS, VALOR_MERCURY};
+use crate::crear_monedas::{generar_monedas, verificar_integridad, VALOR_MERCURY};
 use crate::minar::minar_automatico;
 
 fn signal_handler() {

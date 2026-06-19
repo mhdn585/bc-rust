@@ -2,7 +2,7 @@ use rand::Rng;
 use base64::Engine;
 use crate::logs::log_event;
 use crate::utils::{print_verde, print_rojo, print_amarillo, print_blanco, print_azul};
-use crate::config::obtener_clave_crypto;
+use crate::config::{obtener_clave_crypto, TOTAL_MONEDAS};
 use crate::crypto_aes::cifrar_datos_aes;
 use crate::db::{
     insertar_id_original, insertar_moneda_cifrada, verificar_id_original_existe,
@@ -11,7 +11,6 @@ use crate::db::{
 };
 use std::time::Instant;
 
-pub const TOTAL_MONEDAS: i64 = 100_000;
 pub const LONGITUD_ID: usize = 1024;
 pub const VALOR_MERCURY: i64 = 67998;
 
