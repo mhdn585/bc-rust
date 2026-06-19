@@ -137,7 +137,7 @@ async fn minar_moneda_individual(
     numero_moneda: i32,
     clave_aes: &[u8],
     stop_flag: &Arc<AtomicBool>,
-    contador_minadas: &mut i64,
+    contador_procesadas: &mut i64,
     ganancia_sesion: &mut i64
 ) -> (bool, String, f64) {
     if stop_flag.load(Ordering::SeqCst) {
@@ -183,6 +183,8 @@ async fn minar_moneda_individual(
                     Some(id_descifrado.as_str())
                 };
                 let _ = actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_actual_db), Some(porcentaje_descifrado), preview).await;
+                *ganancia_sesion += incremento;
+                *contador_procesadas += 1;
                 println!();
                 print_amarillo(&format!("  [GUARDADO] Progreso guardado: {:.4}%", porcentaje_descifrado));
             }
@@ -217,6 +219,8 @@ async fn minar_moneda_individual(
                             Some(id_descifrado.as_str())
                         };
                         let _ = actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_actual_db), Some(porcentaje_final), preview).await;
+                        *ganancia_sesion += incremento;
+                        *contador_procesadas += 1;
                         println!();
                         print_amarillo(&format!("  [GUARDADO] Progreso guardado: {:.4}%", porcentaje_final));
                     }
@@ -248,7 +252,7 @@ async fn minar_moneda_individual(
                 Some(id_descifrado.as_str())
             };
             
-            let saldo_nuevo = match actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_actual_db), Some(porcentaje_a_guardar), preview).await {
+            let _ = match actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_actual_db), Some(porcentaje_a_guardar), preview).await {
                 Ok(s) => s,
                 Err(e) => {
                     log_error(&format!("Error al actualizar saldo: {}", e));
@@ -256,19 +260,19 @@ async fn minar_moneda_individual(
                 }
             };
 
-            *contador_minadas += 1;
             *ganancia_sesion += incremento;
+            *contador_procesadas += 1;
 
             println!();
             if (porcentaje_a_guardar - 100.0).abs() < 0.0001 {
                 print_verde(&format!("\n  [OK] MERCURY #{} MINADO COMPLETAMENTE", numero_moneda));
                 print_verde(&format!("  Progreso: 100.00%"));
-                print_verde(&format!("  Monedas minadas en esta sesion: {}", contador_minadas));
+                print_verde(&format!("  Monedas minadas en esta sesion: {}", contador_procesadas));
                 print_verde(&format!("  Ganancia en esta sesion: ${:.3} USD", *ganancia_sesion as f64 / 1000.0));
             } else {
                 print_verde(&format!("\n  [OK] MERCURY #{} MINADO PARCIALMENTE", numero_moneda));
                 print_verde(&format!("  Progreso: {:.4}%", porcentaje_a_guardar));
-                print_verde(&format!("  Monedas minadas en esta sesion: {}", contador_minadas));
+                print_verde(&format!("  Monedas minadas en esta sesion: {}", contador_procesadas));
                 print_verde(&format!("  Ganancia en esta sesion: ${:.3} USD", *ganancia_sesion as f64 / 1000.0));
             }
             println!();
@@ -367,11 +371,11 @@ pub async fn minar_automatico() {
     }
 
     let stop_flag = Arc::new(AtomicBool::new(false));
-    let mut monedas_minadas_exitosas = 0;
+    let mut monedas_procesadas = 0;
     let mut monedas_con_error = 0;
     let mut disponibles_restantes_actual = disponibles_restantes;
     let mut detenido_por_usuario = false;
-    let mut contador_minadas_sesion = 0;
+    let mut contador_procesadas_sesion = 0;
     let mut ganancia_sesion = 0;
 
     while disponibles_restantes_actual > 0 {
@@ -399,7 +403,7 @@ pub async fn minar_automatico() {
             numero_moneda,
             &clave_aes,
             &stop_flag,
-            &mut contador_minadas_sesion,
+            &mut contador_procesadas_sesion,
             &mut ganancia_sesion
         ).await;
 
@@ -412,7 +416,7 @@ pub async fn minar_automatico() {
         }
 
         if exito {
-            monedas_minadas_exitosas += 1;
+            monedas_procesadas += 1;
             if (nuevo_porcentaje - 100.0).abs() < 0.0001 {
                 disponibles_restantes_actual -= 1;
             }
@@ -441,14 +445,13 @@ pub async fn minar_automatico() {
         println!();
     }
     
-    println!("Monedas Mercury procesadas: {}", monedas_minadas_exitosas + monedas_con_error);
-    println!("Monedas Mercury minadas exitosamente: {}", monedas_minadas_exitosas);
+    println!("Monedas Mercury procesadas: {}", contador_procesadas_sesion);
+    println!("Monedas Mercury completadas: {}", monedas_procesadas);
     if monedas_con_error > 0 {
         println!("Monedas con error: {}", monedas_con_error);
     }
 
-    let ganancia_total = monedas_minadas_exitosas * VALOR_MERCURY;
-    println!("Ganancia total en esta sesion: ${:.3} USD", ganancia_total as f64 / 1000.0);
+    println!("Ganancia total en esta sesion: ${:.3} USD", ganancia_sesion as f64 / 1000.0);
 
     let saldo_final = obtener_saldo().await.unwrap_or(0);
     let minadas_completas_final = obtener_monedas_minadas_completas().await.unwrap_or(0);
@@ -456,7 +459,7 @@ pub async fn minar_automatico() {
     
     println!("Saldo inicial: ${:.3} USD", saldo_actual as f64 / 1000.0);
     println!("Saldo final: ${:.3} USD", saldo_final as f64 / 1000.0);
-    println!("Monedas completadas: {}", minadas_completas_final);
+    println!("Monedas completadas totales: {}", minadas_completas_final);
     println!("Valor total minado acumulado: ${:.3} USD", valor_minado_completo as f64 / 1000.0);
 
     if minadas_completas_final == total_monedas {
@@ -468,6 +471,6 @@ pub async fn minar_automatico() {
         println!("  Progreso total del sistema: {:.2}% completado", porcentaje_total);
     }
 
-    let _ = log_event(&format!("Minado completado: {} monedas Mercury minadas, {} errores, ganancia ${:.3} USD, detenido: {}", 
-        monedas_minadas_exitosas, monedas_con_error, ganancia_total as f64 / 1000.0, detenido_por_usuario));
+    let _ = log_event(&format!("Minado completado: {} monedas Mercury procesadas, {} completadas, {} errores, ganancia ${:.3} USD, detenido: {}", 
+        contador_procesadas_sesion, monedas_procesadas, monedas_con_error, ganancia_sesion as f64 / 1000.0, detenido_por_usuario));
 }
