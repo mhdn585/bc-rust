@@ -68,9 +68,8 @@ fn descifrar_id_moneda(id_cifrado_b64: &str, clave_aes: &[u8]) -> Option<String>
 }
 
 fn mostrar_progreso_simple(porcentaje: f64) {
-    let valor_usd = (porcentaje / 100.0) * VALOR_MERCURY as f64 / 1000.0;
     print!("\r\x1b[K");
-    print!("  ({:.2}%) | ${:.2} USD", porcentaje, valor_usd);
+    print!("  ({:.2}%)", porcentaje);
     io::stdout().flush().unwrap();
 }
 
@@ -137,7 +136,9 @@ async fn minar_moneda_individual(
     id_cifrado: &str,
     numero_moneda: i32,
     clave_aes: &[u8],
-    stop_flag: &Arc<AtomicBool>
+    stop_flag: &Arc<AtomicBool>,
+    contador_minadas: &mut i64,
+    ganancia_sesion: &mut i64
 ) -> (bool, String, f64) {
     if stop_flag.load(Ordering::SeqCst) {
         return (false, "Minado detenido por usuario".to_string(), 0.0);
@@ -183,8 +184,7 @@ async fn minar_moneda_individual(
                 };
                 let _ = actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_actual_db), Some(porcentaje_descifrado), preview).await;
                 println!();
-                print_amarillo(&format!("  [GUARDADO] Progreso guardado: {:.4}% (${:.3} USD)", 
-                    porcentaje_descifrado, incremento as f64 / 1000.0));
+                print_amarillo(&format!("  [GUARDADO] Progreso guardado: {:.4}%", porcentaje_descifrado));
             }
         }
         return (false, "Minado detenido por usuario".to_string(), porcentaje_descifrado);
@@ -218,8 +218,7 @@ async fn minar_moneda_individual(
                         };
                         let _ = actualizar_saldo(incremento, Some(moneda_id), Some(porcentaje_actual_db), Some(porcentaje_final), preview).await;
                         println!();
-                        print_amarillo(&format!("  [GUARDADO] Progreso guardado: {:.4}% (${:.3} USD)", 
-                            porcentaje_final, incremento as f64 / 1000.0));
+                        print_amarillo(&format!("  [GUARDADO] Progreso guardado: {:.4}%", porcentaje_final));
                     }
                 }
                 return (false, "Minado detenido por usuario".to_string(), porcentaje_final);
@@ -227,10 +226,9 @@ async fn minar_moneda_individual(
             
             let progreso_actual = porcentaje_descifrado + (paso as f64 * incremento_por_paso);
             porcentaje_final = progreso_actual.min(100.0);
-            let valor_mostrado = (porcentaje_final / 100.0) * VALOR_MERCURY as f64 / 1000.0;
             
             print!("\r\x1b[K");
-            print_azul(&format!("  Minando Mercury: ({:.2}%) | ${:.2} USD", porcentaje_final, valor_mostrado));
+            print_azul(&format!("  Minando Mercury: ({:.2}%)", porcentaje_final));
             io::stdout().flush().unwrap();
             
             std::thread::sleep(Duration::from_millis(30));
@@ -258,16 +256,21 @@ async fn minar_moneda_individual(
                 }
             };
 
+            *contador_minadas += 1;
+            *ganancia_sesion += incremento;
+
             println!();
             if (porcentaje_a_guardar - 100.0).abs() < 0.0001 {
                 print_verde(&format!("\n  [OK] MERCURY #{} MINADO COMPLETAMENTE", numero_moneda));
-                print_verde(&format!("  Ganaste: ${:.3} USD", VALOR_MERCURY as f64 / 1000.0));
+                print_verde(&format!("  Progreso: 100.00%"));
+                print_verde(&format!("  Monedas minadas en esta sesion: {}", contador_minadas));
+                print_verde(&format!("  Ganancia en esta sesion: ${:.3} USD", *ganancia_sesion as f64 / 1000.0));
             } else {
                 print_verde(&format!("\n  [OK] MERCURY #{} MINADO PARCIALMENTE", numero_moneda));
                 print_verde(&format!("  Progreso: {:.4}%", porcentaje_a_guardar));
-                print_verde(&format!("  Ganaste en esta sesion: ${:.3} USD", incremento as f64 / 1000.0));
+                print_verde(&format!("  Monedas minadas en esta sesion: {}", contador_minadas));
+                print_verde(&format!("  Ganancia en esta sesion: ${:.3} USD", *ganancia_sesion as f64 / 1000.0));
             }
-            print_blanco(&format!("  Saldo actual: ${:.3} USD", saldo_nuevo as f64 / 1000.0));
             println!();
 
             let _ = log_event(&format!("Moneda Mercury #{} minada a {:.4}%, incremento ${:.3} USD", 
@@ -368,6 +371,8 @@ pub async fn minar_automatico() {
     let mut monedas_con_error = 0;
     let mut disponibles_restantes_actual = disponibles_restantes;
     let mut detenido_por_usuario = false;
+    let mut contador_minadas_sesion = 0;
+    let mut ganancia_sesion = 0;
 
     while disponibles_restantes_actual > 0 {
         if stop_flag.load(Ordering::SeqCst) || tecla_n_presionada() {
@@ -393,7 +398,9 @@ pub async fn minar_automatico() {
             &moneda.id_cifrado,
             numero_moneda,
             &clave_aes,
-            &stop_flag
+            &stop_flag,
+            &mut contador_minadas_sesion,
+            &mut ganancia_sesion
         ).await;
 
         if stop_flag.load(Ordering::SeqCst) {

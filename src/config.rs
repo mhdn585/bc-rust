@@ -5,7 +5,7 @@ use crate::clave_embebida::obtener_clave_embebida;
 
 pub const TOTAL_MONEDAS: i64 = 100_000;
 
-pub const TIEMPO_MINADO_SEGUNDOS: u64 = 36;
+pub const TIEMPO_MINADO_SEGUNDOS: u64 = 60;
 
 pub const MIN_TIEMPO_MINADO: u64 = 60;
 pub const MAX_TIEMPO_MINADO: u64 = 15_552_000;
